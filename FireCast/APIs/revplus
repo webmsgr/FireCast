@@ -7,7 +7,7 @@ function centerSlow(text)
     local x, y = term.getCursorPos()
     x = math.max(math.floor((w / 2) - (#text / 2)), 0)
     term.setCursorPos(x, y)
-    print(text)
+    textutils.slowPrint(text)
 end
 
 function centerPrint(text)
