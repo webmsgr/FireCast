@@ -1,2 +1,2 @@
-# FireBox-2
+# FireCast
 FireBox 2
