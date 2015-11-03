@@ -1,6 +1,7 @@
 --[[
   Sertex ID API - Made by Ale32bit
   PHP by Luca_S
+  Added to FireCast by Mr_Iron2
 ]]--
 
 local SERVER = "http://sertex.esy.es/"
