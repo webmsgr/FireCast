@@ -1,4 +1,5 @@
 # FireCast
+
 FireCast is the long awaited successor to the hit FireBox™.
 
 This time, however, Sertex are bigger, better and stronger.
@@ -13,10 +14,14 @@ Ideas:
 
 • App/Game Store*
 
-• Ports of hypersuccessful, massive games, like HELICOPTER or Skyfall*
+• Ports of successful games, like HELICOPTER or Skyfall*
 
-• An exclusive @ launch
+• An exclusive @ launch*
 
 • Backwards Compatibility*
+
+• Vinyl Player built-in
+
+• SertexPhone cross-compatibility*
 
 *Must haves
