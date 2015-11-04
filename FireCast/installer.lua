@@ -1,6 +1,6 @@
 local files = {
-	["FireCast/startup"] = "/startup",
-	["FireCast/Menu"] = "/FireCast/Menu",
+	["FireCast/startup.lua"] = "/startup",
+	["FireCast/Menu.lua"] = "/FireCast/Menu",
 	
 	["FireCast/APIs/graphics"] = "/FireCast/APIs/graphics",
 	["FireCast/APIs/sertexID.lua"] = "/FireCast/APIs/sertexID",
