@@ -220,7 +220,7 @@ local function main(...)
 		  sleep(0.1)
 		  localAppsList()
 		elseif ch == 4 then
-			setfenv(loadstring(http.get("https://raw.githubusercontent.com/Sertex-Team/FireCast/master/installer.lua").readAll()),getfenv())()
+			setfenv(loadstring(http.get("https://raw.githubusercontent.com/Sertex-Team/FireCast/master/FireCast/installer.lua").readAll()),getfenv())()
 		elseif ch == 5 then
 			term.setBackgroundColour(colours.white)
 			term.setTextColour(colours.red)
