@@ -68,13 +68,26 @@ local function main(...)
 			end
 		end
 		if not fs.exists(disk.getMountPath(par).."/firecastlaunch") then
-			clear()
-			graphics.header()
-			sertextext.center(5, "The inserted disk is not compatible with FireCast")
-			disk.eject(par)
-			sleep(2)
+			if fs.exists(disk.getMountPath(par).."/fireboxlaunch") then
+				clear()
+				graphics.header()
+				sertextext.center(5, "FireBox disk detected!")
+				sertextext.center(6, "This game may not be compatible")
+				sleep(2)
+				fireboxdisk = true
+			else
+				clear()
+				graphics.header()
+				sertextext.center(5, "The inserted disk is not compatible with FireCast")
+				disk.eject(par)
+				sleep(2)
+			end
 		else
-			dofile(disk.getMountPath(par).."/firecastlaunch")
+			if fireboxdisk then
+				dofile(disk.getMountPath(par).."/fireboxlaunch")
+			else
+				dofile(disk.getMountPath(par).."/firecastlaunch")
+			end
 		end
 		if not run or not fs.exists(disk.getMountPath(par).."/"..run) then
 			clear()
@@ -95,7 +108,7 @@ local function main(...)
 			logoGame = nil
 			clear()
 			graphics.header()
-			sertextext.center(5, "Loading Game...")
+			sertextext.center(5, "Loading Disk...")
 			sleep(1.25)
 			term.setBackgroundColor(colors.black)
 			term.clear()
@@ -111,7 +124,7 @@ local function main(...)
 			if not ok then
 				clear()
 				graphics.header()
-				sertextext.center(5, "The Game \""..gameName.."\" crashed")
+				sertextext.center(5, "The Program \""..gameName.."\" crashed")
 				print(6, "\n"..err)
 				local x, y = term.getCursorPos()
 				sertextext.center(y+2, "Contact "..authorGame.." and report the error")
@@ -158,7 +171,7 @@ local function main(...)
 				"Play App on Disk",
 				"Firewolf",
 				"Sertex Network",
-				"sPhone Companion",
+				"Sertex ID",
 				"Back",	
 		}
 			local opt, ch = ui.menu(options, "Apps")
@@ -173,7 +186,7 @@ local function main(...)
 			elseif ch == 3 then
 				shell.run("/FireCast/Apps/SertexOnline")
 			elseif ch == 4 then
-				shell.run("/FireCast/Apps/sPhone")
+				shell.run("/FireCast/Apps/SertexID")
 			elseif ch == 5 then
 				mainMenu()
 			end
@@ -229,7 +242,7 @@ local function main(...)
 	clear()
 	sertextext.centerDisplay("FireCast")
 	local x, y = term.getCursorPos()
-	sertextext.center(y+3, "Sertex/Game Fusion Team")
+	sertextext.center(y+3, "Sertex-Team & Game Fusion Team")
 	sleep(3)
 	mainMenu()
 end
