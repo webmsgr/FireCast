@@ -58,7 +58,7 @@ local function main(...)
 		graphics.header()
 		sertextext.center(5, "Insert disk or press backspace")
 		while true do
-			local e, par = os.pullEvent()
+			e, par = os.pullEvent()
 			if e == "disk" then
 				break
 			elseif e == "key" then
