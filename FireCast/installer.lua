@@ -1,11 +1,11 @@
 local files = {
 }
 
-local githubUser    = ""
-local githubRepo    = ""
-local githubBranch  = ""
+local githubUser    = "Sertex-Team"
+local githubRepo    = "FireCast"
+local githubBranch  = "master"
 
-local installerName = nil -- if you need one, this will replace "Installer for user/repo, branch branch"
+local installerName = "FireCast" -- if you need one, this will replace "Installer for user/repo, branch branch"
 
 local function clear()
 	term.clear()
@@ -99,3 +99,4 @@ local w, h = term.getSize()
 term.setCursorPos(2, h-1)
 print("100% - "..tostring(filesDownloaded).."/"..tostring(fileCount))
 os.pullEvent("key")
+os.reboot()
