@@ -1,4 +1,12 @@
 local files = {
+	["FireCast/startup"] = "/startup",
+	["FireCast/Menu"] = "/FireCast/Menu",
+	
+	["FireCast/APIs/graphics"] = "/FireCast/APIs/graphics",
+	["FireCast/APIs/sertexID.lua"] = "/FireCast/APIs/sertexID",
+	["FireCast/APIs/sertextext"] = "/FireCast/APIs/sertextext",
+	["FireCast/APIs/sha256"] = "/FireCast/APIs/sha256",
+	["FireCast/APIs/ui"] = "/FireCast/APIs/ui",
 }
 
 local githubUser    = "Sertex-Team"
