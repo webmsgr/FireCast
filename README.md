@@ -6,6 +6,8 @@ This time, however, Sertex are bigger, better and stronger.
 
 Sertex now have Game Fusion in collaboration with them for FireCast.
 
+Installer: pastebin run Pk9Yfd6n
+
 Ideas:
 
 • Online System like PlayStation Network*
