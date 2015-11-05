@@ -7,7 +7,6 @@ local files = {
 	["FireCast/APIs/sertextext"] = "/FireCast/APIs/sertextext",
 	["FireCast/APIs/sha256"] = "/FireCast/APIs/sha256",
 	["FireCast/APIs/ui"] = "/FireCast/APIs/ui",
-	
 	["FireCast/Apps/firewolf.lua"] = "/FireCast/Apps/firewolf",
 }
 
@@ -17,7 +16,7 @@ local githubBranch  = "master"
 
 local installerName = "FireCast" -- if you need one, this will replace "Installer for user/repo, branch branch"
 
-local function clear()
+local function clear() --why the fuck do we need a clear function?
 	term.clear()
 	term.setCursorPos(1, 1)
 end
@@ -66,7 +65,6 @@ local function getFile(file, target)
 end
 
 shell.setDir("")
-
 clear()
 
 print(installerName or ("Installer for " .. githubUser .. "/" .. githubRepo .. ", branch " .. githubBranch))
@@ -78,7 +76,6 @@ end
 local filesDownloaded = 0
 
 local w, h = term.getSize()
-
 for k, v in pairs(files) do
 	term.setTextColor(colors.black)
 	term.setBackgroundColor(colors.white)
