@@ -56,6 +56,10 @@ local function main(...)
 		version = "1",
 	}
 	
+	function os.version()
+		return "FireCast "..firecast.version	
+	end
+	
 	function firecast.runApp(_app,...)
 		if not fs.exists("/FireCast/Apps/".._app) then
 			error("File not found")
