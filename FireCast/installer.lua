@@ -7,6 +7,8 @@ local files = {
 	["FireCast/APIs/sertextext"] = "/FireCast/APIs/sertextext",
 	["FireCast/APIs/sha256"] = "/FireCast/APIs/sha256",
 	["FireCast/APIs/ui"] = "/FireCast/APIs/ui",
+	
+	["FireCast/Apps/firewolf.lua"] = "/FireCast/Apps/firewolf",
 }
 
 local githubUser    = "Sertex-Team"
