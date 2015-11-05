@@ -193,7 +193,7 @@ local function main(...)
 	if ch == 1 then
 		playDisk()
 	elseif ch == 2 then
-		firecast.runApp("firewolf")
+		firecast.runApp("firewolf") --FireWolf code here may crash
 	end
 	function mainMenu(se)
 		if se then
