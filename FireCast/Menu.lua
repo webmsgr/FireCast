@@ -11,7 +11,7 @@ local function crash(reason,message)
 		["security"] = "System Security Issue",
 		["crash"] = "System Crashed",
 		["unknown"] = "Unknown Error",
-		["game"] = "A Game Crashed The System"
+		["game"] = "A Game Crashed The System",
 
 	}
 		term.setBackgroundColor(colors.blue)
@@ -189,70 +189,71 @@ local function main(...)
 			"Sertex Network",
 			"Sertex ID",
 			"Back",	
-	}
-	local opt, ch = ui.menu(options, "Apps")
-	term.setBackgroundColor(colors.black)
-	term.clear()
-	term.setCursorPos(1,1)
-	term.setTextColor(colors.white)
-	if ch == 1 then
-		playDisk()
-	elseif ch == 2 then
-		playFirewolf() --worth a try
-	end
-	function mainMenu(se)
-		if se then
-			if se == "games" then
+		}
+		local opt, ch = ui.menu(options, "Apps")
+		term.setBackgroundColor(colors.black)
+		term.clear()
+		term.setCursorPos(1,1)
+		term.setTextColor(colors.white)
+		if ch == 1 then
+			playDisk()
+		elseif ch == 2 then
+			playFirewolf() --worth a try
+		end
+		function mainMenu(se)
+			if se then
+				if se == "games" then
+					localGamesList()
+	 			elseif se == "apps" then
+					localAppsList()
+				end
+			end
+			clear()
+			graphics.header()
+	
+			local options = {
+				"Play", --1
+				"Apps", --2
+				"Settings", --3
+				"Update", --4
+				"Power Off", --5
+			}
+	
+			local opt, ch = ui.menu(options, "Main Menu")
+	
+			if ch == 1 then
+				sleep(0.1)
 				localGamesList()
-	 elseif se == "apps" then
-	      localAppsList()
+			elseif ch == 2 then
+				sleep(0.1)
+				localAppsList()
+			elseif ch == 4 then
+				setfenv(loadstring(http.get("https://raw.githubusercontent.com/Sertex-Team/FireCast/master/FireCast/installer.lua").readAll()),getfenv())()
+			elseif ch == 5 then
+				term.setBackgroundColour(colours.white)
+				term.setTextColour(colours.red)
+				term.clear()
+				sertextext.center(8,"Shutting Down...")
+				sleep(1)
+				term.setBackgroundColour(colours.grey)
+				term.clear()
+				sleep(0.5)
+				term.setBackgroundColour(colours.lightGrey)
+				term.clear()
+				sleep(0.2)
+				os.shutdown()
+			else
+				mainMenu()
 			end
 		end
+	
 		clear()
-		graphics.header()
-	
-		local options = {
-			"Play", --1
-			"Apps", --2
-			"Settings", --3
-			"Update", --4
-			"Power Off", --5
-		}
-	
-		local opt, ch = ui.menu(options, "Main Menu")
-	
-		if ch == 1 then
-			sleep(0.1)
-			localGamesList()
-		elseif ch == 2 then
-		  sleep(0.1)
-		  localAppsList()
-		elseif ch == 4 then
-			setfenv(loadstring(http.get("https://raw.githubusercontent.com/Sertex-Team/FireCast/master/FireCast/installer.lua").readAll()),getfenv())()
-		elseif ch == 5 then
-			term.setBackgroundColour(colours.white)
-			term.setTextColour(colours.red)
-			term.clear()
-			sertextext.center(8,"Shutting Down...")
-			sleep(1)
-			term.setBackgroundColour(colours.grey)
-			term.clear()
-			sleep(0.5)
-			term.setBackgroundColour(colours.lightGrey)
-			term.clear()
-			sleep(0.2)
-			os.shutdown()
-		else
-			mainMenu()
-		end
+		sertextext.centerDisplay("FireCast")
+		local x, y = term.getCursorPos()
+		sertextext.center(y+3, "Sertex-Team & Game Fusion Team")
+		sleep(3)
+		mainMenu()
 	end
-	
-	clear()
-	sertextext.centerDisplay("FireCast")
-	local x, y = term.getCursorPos()
-	sertextext.center(y+3, "Sertex-Team & Game Fusion Team")
-	sleep(3)
-	mainMenu()
 end
 
 disk = peripheral.find("drive")
