@@ -255,6 +255,7 @@ local function main(...)
 		mainMenu()
 	end
 end
+end
 
 disk = peripheral.find("drive")
 
