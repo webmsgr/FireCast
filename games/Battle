@@ -1,0 +1,456 @@
+function reset ()
+        term.clear()
+        term.setCursorPos(1,1)
+end
+ 
+function line ()
+        print("")
+end
+ 
+function printcolor (x,y)
+        term.setTextColor(y)
+        print(x)
+        term.setTextColor(colors.white)
+end
+ 
+x = 0
+y = 0
+ 
+function menu ()
+        reset()
+        print("[Battle for FireCast]")
+        line()
+        print("[>] New Game")
+        if not fs.exists("battle_data") then
+                term.setTextColor(colors.gray)
+        end
+        print("[>] Load Game")
+        term.setTextColor(colors.white)
+		print("[>] Custom Game")
+        print("[>] Help")
+        print("[!] Quit")
+        line()
+        print("Click on the icon next to option.")
+       
+        while true do
+                local event, button, x, y = os.pullEvent( "mouse_click" )
+       
+                if x == 2 then
+                        if y == 3 then
+                                newgame()
+                        elseif (y == 4) and (fs.exists("battle_data")) then
+                                loadgame()
+						elseif y == 5 then
+								customgame()
+                        elseif y == 6 then
+                                help()
+                        elseif y == 7 then
+                                reset()
+                                print("Thanks for playing!")
+                                error()
+                        else
+                                menu()
+                        end
+                end
+        end
+end
+
+function customgame()
+	custom = 1
+	reset()
+	print("[Custom Game]")
+	print("Note that you cannot save a custom game, and a custom game cannot overwrite a normal saved game.")
+	line()
+	print("[>] Continue")
+	print("[>] Back")
+	while true do
+                local event, button, x, y = os.pullEvent( "mouse_click" )
+       
+                if x == 2 then
+                        if y == 6 then
+                                menu()
+                        elseif y == 5 then
+                                break
+						else
+							customgame()
+                        end
+                end
+	end
+	reset()
+	print("[Custom Game]")
+	line()
+	print("Player Base Health:")
+	maxhp = tonumber(read())
+	hp = maxhp
+	line()
+	print("Enemy Base Health:")
+	emaxhp = tonumber(read())
+	ehp = emaxhp
+	line()
+	print("Player Base Attack:")
+	bdmg = tonumber(read())
+	dmg = bdmg
+	line()
+	print("Player Base Defense:")
+	bdef = tonumber(read())
+	def = bdef
+	line()
+	print("Enemy Base Attack:")
+	ebdmg = tonumber(read())
+	edmg = ebdmg
+	line()
+	print("Enemy Base Defense:")
+	ebdef = tonumber(read())
+	edef = ebdef
+	reset()
+	
+	heal = 0
+	eheal = 0
+	lvl = 1
+	game()
+end
+
+function help ()
+        reset()
+        print("Button Icons:")
+        print("'[>]' = Go to another menu")
+        print("'[X]' = Attack")
+        print("'[^]' = Increase Stat")
+        print("'[!]' = Exit")
+        line()
+        print("General information:")
+        print("- When you attack the enemy, the enemy will take this much damage: attack-enemy defense. The minimum damage taken is 1. The same goes for the player.")
+        print("- A grey option is not usable. Clicking on it will do nothing.")
+        line()
+        print("[>] Back")
+        while true do
+                local event, button, x, y = os.pullEvent( "mouse_click" )
+               
+                if x == 2 then
+                        if y == 14 then
+                                menu()
+                        end
+                end
+        end
+end
+ 
+function loadgame ()
+		custom = 0
+        reset()
+        print("Please Wait...")
+       
+        h = fs.open("battle_data/maxhp.dat","r")
+        maxhp = tonumber(h.readLine())
+        hp = maxhp
+        h.close()
+        h = fs.open("battle_data/bdmg.dat","r")
+        bdmg = tonumber(h.readLine())
+        dmg = bdmg
+        h.close()
+        h = fs.open("battle_data/bdef.dat","r")
+        bdef = tonumber(h.readLine())
+        def = bdef
+        h.close()
+        h = fs.open("battle_data/heal.dat","r")
+        heal = tonumber(h.readLine())
+        h.close()
+        h = fs.open("battle_data/emaxhp.dat","r")
+        emaxhp = tonumber(h.readLine())
+		ehp = emaxhp
+        h.close()
+        h = fs.open("battle_data/ebdmg.dat","r")
+        ebdmg = tonumber(h.readLine())
+        edmg = ebdmg
+        h.close()
+        h = fs.open("battle_data/ebdef.dat","r")
+        ebdef = tonumber(h.readLine())
+        edef = ebdef
+        h.close()
+        h = fs.open("battle_data/eheal.dat","r")
+        eheal = tonumber(h.readLine())
+        h.close()
+		h = fs.open("battle_data/lvl.dat","r")
+        lvl = tonumber(h.readLine())
+        h.close()
+        game()
+end
+ 
+function newgame ()
+		custom = 0
+        reset()
+        print("Please Wait...")
+ 
+        maxhp = 100
+        hp = maxhp
+        bdmg = 4
+        dmg = bdmg
+        bdef = 0
+        def = bdef
+        heal = 0
+		lvl = 1
+       
+        emaxhp = 100
+        ehp = emaxhp
+        ebdmg = 4
+        edmg = ebdmg
+        ebdef = 0
+        edef = ebdef
+        eheal = 0
+       
+        fs.delete("battle_data")
+        fs.makeDir("battle_data")
+        h = fs.open("battle_data/maxhp.dat","w")
+        h.write(tostring(maxhp))
+        h.close()
+        h = fs.open("battle_data/bdmg.dat","w")
+        h.write(tostring(dmg))
+        h.close()
+        h = fs.open("battle_data/bdef.dat","w")
+        h.write(tostring(def))
+        h.close()
+        h = fs.open("battle_data/heal.dat","w")
+        h.write(tostring(heal))
+        h.close()
+        h = fs.open("battle_data/emaxhp.dat","w")
+        h.write(tostring(emaxhp))
+        h.close()
+        h = fs.open("battle_data/ebdmg.dat","w")
+        h.write(tostring(ebdmg))
+        h.close()
+        h = fs.open("battle_data/ebdef.dat","w")
+        h.write(tostring(ebdef))
+        h.close()
+        h = fs.open("battle_data/eheal.dat","w")
+        h.write(tostring(eheal))
+        h.close()
+		h = fs.open("battle_data/lvl.dat","w")
+        h.write(tostring(lvl))
+        h.close()
+       
+        turn = 0
+       
+        game()
+end
+ 
+z = 0
+desc = ""
+ 
+function redraw ()
+        reset()
+		print("Level "..lvl)
+        print("Health: "..hp.."/"..maxhp)
+        print("Enemy Health: "..ehp.."/"..emaxhp)
+        print(heal.." Health Potions")
+        line()
+        print(desc)
+        print(desc1)
+        line()
+        if turn == 1 then
+                term.setTextColor(colors.gray)
+        end
+        print("[X] Attack")
+        print("[^] Raise Attack")
+        print("[^] Raise defense")
+        if heal == 0 then
+                term.setTextColor(colors.gray)
+        end
+        print("[^] Heal")
+        term.setTextColor(colors.white)
+        line()
+        print("[>] Exit To Menu")
+        print("[!] Exit")
+        line()
+end
+ 
+function game ()
+        redraw()
+       
+        while turn == 0 do
+                local event, button, x, y = os.pullEvent( "mouse_click" )
+                if x == 2 then
+                        if y == 9 then
+                                local xx = dmg-edef
+                                if xx < 1 then
+                                        xx = 1
+                                end
+                                ehp = ehp-xx
+                                desc = "You attacked the enemy, dealing "..xx.." damage."
+                                turn = 1
+                        elseif y == 10 then
+                                dmg = dmg+1
+                                desc = "You raised your attack."
+                                turn = 1
+                        elseif y == 11 then
+                                def = def+1
+                                desc = "You raised your defense."
+                                turn = 1
+                        elseif (y == 12) and heal >= 1 then
+                                local xx = hp+10
+                                if xx > maxhp then
+                                        xx = maxhp
+                                end
+                                hp = xx
+                                heal = heal-1
+                                desc = "You recovered 10 health."
+                                turn = 1
+                        elseif (y == 14) then
+                                menu()
+                        elseif (y == 15) then
+                                reset()
+                                print("Thanks for playing!")
+                                error()
+                        end
+                end
+        end
+       
+        redraw()
+        sleep(1)
+       
+        if ehp > 0 then
+                eattack()
+        end
+       
+        redraw()
+        sleep(1)
+       
+        y = math.random(1,5)
+       
+        if y == 1 then
+                z1 = math.random(1,2)
+                if z1 == 1 then
+                        desc = "You found a health potion."
+                        heal = heal+1
+                else
+                        desc = "The enemy found a health potion."
+                        eheal = eheal+1
+                end
+        end
+        redraw()
+        turn = 0
+        if ehp <= 0 then
+                desc = "The enemy has been defeated."
+                redraw()
+                sleep(1)
+                lvlup()
+        end
+		
+		if hp < 0 then
+			desc = "You have been defeated."
+			redraw()
+			sleep(3)
+			fs.delete("battle_data")
+			menu()
+		end
+        game()
+end
+ 
+function eattack ()
+        local z = math.random(0,3)
+       
+        if z == 0 then
+                local xx = edmg-def
+                if xx < 1 then
+                        xx = 1
+                end
+                hp = hp-xx
+                desc = "The enemy attacked, dealing "..xx.." damage."
+        elseif z == 1 then
+                edmg = edmg+1
+                desc = "The enemy raised its attack."
+        elseif z == 2 then
+                edef = edef+1
+                desc = "The enemy raised its defense."
+        elseif z == 3 then
+                if eheal >= 1 then
+                        if ehp < emaxhp-9 then
+                                ehp = ehp+10
+                                eheal = eheal-1
+                                desc = "The enemy recovered 10 health."
+                        end
+                else
+                eattack()
+                end
+        end
+end
+ 
+function lvlup()
+        reset()
+        print("Please choose an option.")
+        line()
+        print("[^] Increase maximum health by 20")
+        print("[^] Increase base attack by 2")
+        print("[^] Increase base defense by 2")
+        cnf = 0
+       
+        while cnf == 0 do
+                local event, button, x, y = os.pullEvent( "mouse_click" )
+               
+                if x == 2 then
+                        if y == 3 then
+                                maxhp = maxhp+20
+                                cnf = 1
+                        elseif y == 4 then
+                                bdmg = bdmg+2
+                                cnf = 1
+                        elseif y == 5 then
+                                bdef = bdef+2
+                                cnf = 1
+                        end
+                end
+        end
+        local xx = math.random(0,2)
+       
+        if xx == 0 then
+                emaxhp = emaxhp+20
+                desc = "The enemy now has 20 more health."
+        elseif xx == 1 then
+                ebdmg = ebdmg+2
+                desc = "The enemy now has 2 more attack."
+        elseif xx == 2 then
+                ebdef = ebdef+2
+                desc = "The enemy now has 2 more defense."
+        end
+        dmg = bdmg
+        def = bdef
+        hp = maxhp
+        edmg = ebdmg
+        edef = ebdef
+        ehp = emaxhp
+		lvl = lvl+1
+        redraw()
+        redraw()
+		if custom == 0 then
+			fs.delete("battle_data")
+			fs.makeDir("battle_data")
+			h = fs.open("battle_data/maxhp.dat","w")
+			h.write(tostring(maxhp))
+			h.close()
+			h = fs.open("battle_data/bdmg.dat","w")
+			h.write(tostring(dmg))
+			h.close()
+			h = fs.open("battle_data/bdef.dat","w")
+			h.write(tostring(def))
+			h.close()
+			h = fs.open("battle_data/heal.dat","w")
+			h.write(tostring(heal))
+			h.close()
+			h = fs.open("battle_data/emaxhp.dat","w")
+			h.write(tostring(emaxhp))
+			h.close()
+			h = fs.open("battle_data/ebdmg.dat","w")
+			h.write(tostring(ebdmg))
+			h.close()
+			h = fs.open("battle_data/ebdef.dat","w")
+			h.write(tostring(ebdef))
+			h.close()
+			h = fs.open("battle_data/eheal.dat","w")
+			h.write(tostring(eheal))
+			h.close()
+			h = fs.open("battle_data/lvl.dat","w")
+			h.write(tostring(lvl))
+			h.close()
+		end
+		game()
+end
+ 
+menu()
