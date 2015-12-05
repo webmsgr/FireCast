@@ -22,10 +22,8 @@ Ideas:
 
 • Backwards Compatibility*
 
-• Vinyl Player/NBS Player ("note")
-
 • SertexPhone cross-compatibility*
 
-• A Second Screen, like the Wii U? [Here's something interesting] Using SertexPhone as the 2nd screen? And taking the phone anywhere you go with your data?
+• A Second Screen, like the Wii U? Using SertexPhone as the 2nd screen? And taking the phone anywhere you go with your data?
 
 *Must haves
