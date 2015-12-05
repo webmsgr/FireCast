@@ -1,0 +1,2411 @@
+-- Building Game, now on FireCast!
+
+local tArgs = {...}
+term.redirect(term.native())
+term.clear()
+term.setCursorPos(1, 1)
+print("Loading...")
+
+local sides = {"left", "right", "front", "back", "top", "bottom"}
+local serialize, unserialize = textutils.serialize, textutils.unserialize
+local scrwidth, scrheight = term.getSize()
+local scrcenx, scrceny = math.floor(scrwidth*.5), math.ceil(scrheight*.5)
+
+-- Fake Rednet API --
+local emulateRednetAPI = false
+local rawRednetOpen = rednet.open
+function rednet.open(side)
+	local ok, err = pcall(rawRednetOpen, side)
+	if ok then
+		return err
+	end
+	emulateRednetAPI = true
+end
+
+-- Basic Functions --
+local function yield()
+	os.queueEvent( "sleep" )
+	coroutine.yield( "sleep" )
+end
+
+function loadFile(path)
+	local file = fs.open(path, "r")
+	if file then
+		local str = file.readAll()
+		file.close()
+		return str
+	end
+end
+
+function saveFile(path, str)
+	local file = fs.open(path, "w")
+	if file then
+		file.writeLine(str)
+		file.close()
+		return true
+	end
+	return false
+end
+
+-- Find a modem
+function getModem()
+	--while true do
+		for k, v in ipairs(sides) do
+			if peripheral.getType(v) == "modem" then
+				selectedside = v
+				return v
+			end
+		end
+		sleep()
+	--end
+end
+
+-- This function gets the used space of path.
+local yieldNow = 0
+function getSize(path)
+	local size = 0
+	if fs.isDir(path) then
+		for k, v in ipairs(fs.list(path)) do
+			yieldNow = yieldNow + 1
+			if fs.isDir(path.."/"..v) then
+				size = size + getSize(path.."/"..v)
+			else
+				size = size + fs.getSize(path.."/"..v)
+			end
+			if yieldNow >= 128 then
+				yieldNow = 0
+				yield()
+			end
+		end
+		return size
+	end
+	return 0
+end
+
+getModem()
+rednet.open(selectedside)
+
+-- Set up APIs
+local blockAPI = {}
+local draw = {}
+local world = {}
+local save = {}
+local server = {}
+local client = {}
+local gui = {}
+local mods = {}
+local chatCommands = {}
+local serverErrorCodes = {}
+local animatedMainMenu = {}
+
+-- Set up local variables
+local servertimer = os.startTimer(.25)
+local myCom = os.getComputerID()
+local localposx, localposy = 0, 0
+local localinventory, localselecteditem = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 1
+
+-- set table variables
+save.folderName = "CrBu"
+save.mainDirectory = string.sub(shell.getRunningProgram(), 1, -(#fs.getName(shell.getRunningProgram())) - 1)
+save.worldList = {}
+if fs.isReadOnly(save.mainDirectory) then
+	save.mainDirectory = save.folderName.."/"
+else
+	save.mainDirectory = save.mainDirectory.."/"..save.folderName.."/"
+end
+world.currentWorld = loadFile(save.mainDirectory.."lastPlayedWorld") or "NewWorld"
+world.terrain = {}
+world.renderDistance = 4
+world.seed = math.random(2048*2048)
+world.maxSize = 768
+world.loadedChunks = {}
+server.connectedPlayers = {}
+server.kickReason = {}
+server.coTab = {}
+server.deadCoroutines = {}
+server.publishToPlayers = false
+server.rankList = {}
+server.privilegeList = {}
+server.needsPrivileges = "&eThis user cannot use this action."
+server.bannedPlayers = {}
+client.connectedTo = -1
+client.loadingScreenChunksLoaded = 0
+client.loadingScreenChunksToLoad = 10
+client.showLoadingScreen = true
+
+-- Default API extensions
+-- This function returns a string with the first character being upper cased.
+function string.upperFirstChar(str)
+	return string.upper(string.sub(str, 1, 1))..string.sub(str, 2)
+end
+
+-- This function returns a string with the first character being upper cased and the rest lowercased.
+function string.upperOnlyFirstChar(str)
+	return string.upper(string.sub(str, 1, 1))..string.lower(string.sub(str, 2))
+end
+
+-- This function clones a table, but the returned table is not an index that accesses the original table.
+function table.clone(tTable, dimensionsToClone)
+	if not dimensionsToClone then dimensionsToClone = -1 end
+	local returnedTable = {}
+	for k, v in pairs(tTable) do
+		if type(v) == "table" then
+			if dimensionsToClone ~= 0 then
+				returnedTable[k] = table.clone(v, dimensionsToClone - 1)
+			end
+		elseif type(v) == "string" then
+			returnedTable[k] = tostring(tTable[k])
+		elseif type(v) == "number" then
+			returnedTable[k] = tonumber(tTable[k])
+		else
+			returnedTable[k] = tTable[k]
+		end
+	end
+	return returnedTable
+end
+
+-- Initial functions --
+function wrapInPcall(functionToWrap)
+	local oldFunction = functionToWrap
+	return function(...)
+		local args = {pcall(oldFunction, ...)}
+		if args[1] then
+			table.remove(args, 1)
+			return unpack(args)
+		end
+	end
+end
+
+rednet.send = wrapInPcall(rednet.send)
+serialize = wrapInPcall(serialize)
+unserialize = wrapInPcall(unserialize)
+
+-- This function resets game variables.
+local function resetVariables()
+	server.isServer = false
+	server.connectedPlayers = {}
+	server.coTab = {}
+	server.deadCoroutines = {}
+	server.publishToPlayers = false
+	client.connectedTo = -1
+	client.loadingScreenChunksLoaded = 0
+	client.showLoadingScreen = true
+	localposx, localposy = 0, 0
+	localinventory, localselecteditem = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 1
+end
+
+-- New Buffer API originally used in MiniatureCraft, created by Detective_Smith. --
+local nativeTerm = term.native()
+local sx, sy = nativeTerm.getSize()
+local decToHex = {[1] = "0", [2] = "1", [4] = "2", [8] = "3", [16] = "4", [32] = "5", [64] = "6", [128] = "7", [256] = "8", [512] = "9", [1024] = "a", [2048] = "b", [4096] = "c", [8192] = "d", [16384] = "e", [32768] = "f"}
+
+local function getColorOf(hex) return math.pow(2, tonumber(hex, 16)) end
+local function colorIsValid(color, isColor)
+	if type(color) ~= "number" then return end
+	if isColor then if color < 1 or color > 32768 then return end
+	else if color ~= 1 or color ~= 32768 then return end end return true
+end
+
+_G.Buffer = {}
+function Buffer.createBuffer(x, y, width, height, termIsColor)
+	local termObject = {
+		CursorX = 1, CursorY = 1,
+		OffsetX = (x or 1) - 1, OffsetY = (y or 1) - 1,
+		Width = width or sx, Height = height or sy,
+		TColor = colors.white, BColor = colors.black,
+		CursorBlink = false,
+		TermIsColor = termIsColor or nativeTerm.isColor(),
+		textScreen = {}, textColor = {}, backColor = {},
+		ots = {}, otc = {}, obc = {}
+	}
+
+	for i = 1, termObject.Height do 
+		termObject.textScreen[i] = string.rep(" ", termObject.Width)
+		termObject.textColor[i] = string.rep(decToHex[termObject.TColor], termObject.Width) 
+		termObject.backColor[i] = string.rep(decToHex[termObject.BColor], termObject.Width) 
+		termObject.ots[i] = string.rep("X", termObject.Width)
+		termObject.otc[i] = string.rep(decToHex[termObject.BColor], termObject.Width) 
+		termObject.obc[i] = string.rep(decToHex[termObject.TColor], termObject.Width) 
+	end
+
+	local terminalFunctions = {
+		isColor = function(termObject) return termObject.TermIsColor end,
+		write = function(termObject, ...)
+			local tString = tostring(...) or ""
+			if termObject.CursorX < 1 or termObject.CursorX > termObject.Width or termObject.CursorY < 1 or termObject.CursorY > termObject.Height or #tString == 0 then return end
+			termObject.textScreen[termObject.CursorY] = string.sub(termObject.textScreen[termObject.CursorY], 1, termObject.CursorX - 1) ..tString.. string.sub(termObject.textScreen[termObject.CursorY], termObject.CursorX + #tString)
+			termObject.textColor[termObject.CursorY] = string.sub(termObject.textColor[termObject.CursorY], 1, termObject.CursorX - 1) ..string.rep(decToHex[termObject.TColor], #tString).. string.sub(termObject.textColor[termObject.CursorY], termObject.CursorX + #tString)
+			termObject.backColor[termObject.CursorY] = string.sub(termObject.backColor[termObject.CursorY], 1, termObject.CursorX - 1) ..string.rep(decToHex[termObject.BColor], #tString).. string.sub(termObject.backColor[termObject.CursorY], termObject.CursorX + #tString)
+			termObject.CursorX = termObject.CursorX + #tString
+		end,
+		 
+		setCursorPos = function(termObject, x, y) termObject.CursorX, termObject.CursorY = math.floor(x), math.floor(y) end,  
+		getCursorPos = function(termObject) return termObject.CursorX, termObject.CursorY end,
+		scroll = function(termObject, scrollAmount) end,
+		 
+		clear = function(termObject)
+			for i = 1, termObject.Height do 
+				termObject.textScreen[i] = string.rep(" ", termObject.Width) 
+				termObject.textColor[i] = string.rep(decToHex[termObject.TColor], termObject.Width) 
+				termObject.backColor[i] = string.rep(decToHex[termObject.BColor], termObject.Width) 
+			end
+		end,
+		
+		clearLine = function(termObject) end,
+		setCursorBlink = function(termObject, cBool) if type(cBool) == "boolean" then termObject.CursorBlink = cBool end end,
+		getSize = function(termObject) return termObject.Width, termObject.Height end,
+		setTextColor = function(termObject, color) if colorIsValid(color, termObject.TermIsColor) then termObject.TColor = color end end,
+		setBackgroundColor = function(termObject, color) if colorIsValid(color, termObject.TermIsColor) then termObject.BColor = color end end,
+
+		drawScreen = function(termObject, x, y, w, h)
+			local currentTColor, currentBColor, changePosition = termObject.TColor, termObject.BColor, false
+			nativeTerm.setCursorBlink(false) 
+			for y = 1, termObject.Height do
+				if not changePosition then nativeTerm.setCursorPos(1 + termObject.OffsetX, y + termObject.OffsetY) end
+				for x = 1, termObject.Width do
+					if string.sub(termObject.textColor[y], x, x) == string.sub(termObject.otc[y], x, x) and string.sub(termObject.backColor[y], x, x) == string.sub(termObject.obc[y], x, x) and string.sub(termObject.textScreen[y], x, x) == string.sub(termObject.ots[y], x, x) then
+						changePosition = true
+					else
+						if changePosition then nativeTerm.setCursorPos(termObject.OffsetX + x, y + termObject.OffsetY); changePosition = false end
+						nativeTerm.setBackgroundColor(getColorOf(string.sub(termObject.backColor[y], x, x)))
+						nativeTerm.setTextColor(getColorOf(string.sub(termObject.textColor[y], x, x)))
+						nativeTerm.write(string.sub(termObject.textScreen[y], x, x)) 
+					end
+				end
+			end
+
+			nativeTerm.setBackgroundColor(termObject.BColor); nativeTerm.setTextColor(termObject.TColor)
+			if termObject.CursorBlink then nativeTerm.setCursorPos(termObject.CursorX, termObject.CursorY); nativeTerm.setCursorBlink(true) end
+
+			for y = 1, #termObject.textScreen do termObject.ots[y] = termObject.textScreen[y] end
+			for y = 1, #termObject.textColor do termObject.otc[y] = termObject.textColor[y] end
+			for y = 1, #termObject.backColor do termObject.obc[y] = termObject.backColor[y] end
+		end
+	}
+
+	terminalFunctions.setBackgroundColour = terminalFunctions.setBackgroundColor
+	terminalFunctions.setTextColour = terminalFunctions.setTextColor
+	terminalFunctions.isColour = terminalFunctions.isColor
+	local function wrapTable(f, o) return function(...) return f(o, ...) end end
+	for k, v in pairs(terminalFunctions) do
+		if type(v) == "function" then terminalFunctions[k] = wrapTable(v, termObject)
+		else terminalFunctions[k] = v end
+	end
+	setmetatable(termObject, {__index = terminalFunctions})
+	return termObject
+end
+screenBuffer = Buffer.createBuffer(1, 1, sx, sy, true)
+
+local usedTerm = term
+
+----------
+-- APIs --
+----------
+
+-- Block API --
+local colorTab = {["0"] = 1, ["1"] = 2, ["2"] = 2^2, ["3"] = 2^3, ["4"] = 2^4, ["5"] = 2^5, ["6"] = 2^6, ["7"] = 2^7, ["8"] = 2^8, ["9"] = 2^9, ["A"] = 2^10, ["B"] = 2^11, ["C"] = 2^12, ["D"] =  2^13, ["E"] = 2^14, ["F"] = 2^15}
+blockAPI.blocks = {}
+blockAPI.blockData = {}
+blockAPI.blockNameToID = {}
+blockAPI.materials = {}
+local blocks = blockAPI.blocks
+local blockData = blockAPI.blockData
+local blockNameToID = blockAPI.blockNameToID
+local materials = blockAPI.materials
+
+-- This function creates a toolData table for use with your tool items.
+function blockAPI.newToolData(itemType, param1, param2, param3, param4, param5, param6)
+	local toolData = {}
+	local s = string.lower
+	if type(itemType) ~= "string" then 
+		error("bad argument #1 to newToolData (string expected, got "..type(toolType)..")", 2) 
+	end
+	if s(itemType) == "tool" then
+		local toolType, material, durability, powerLevel, speed = param1, param2, param3, param4, param5
+		toolData["ToolType"] = string.upperOnlyFirstChar(toolType)
+		toolData["Material"] = material
+		toolData["Durability"] = durability
+		toolData["PowerLevel"] = powerLevel
+		toolData["Speed"] = speed
+	elseif s(itemType) == "item" then
+		
+	elseif s(itemType) == "food" then
+		
+	end
+	return toolData
+end
+
+-- This function creates a new material.
+function blockAPI.newMaterial(name, materialStrength, blastResistance, toolRequiredToBreak, powerLevelRequiredToBreak)
+	materials[name] = {
+		["MaterialStrength"] = materialStrength or 20,
+		["BlastResistance"] = blastResistance or 0,
+		["ToolRequiredToBreak"] = string.upperOnlyFirstChar(toolRequiredToBreak) or "Pickaxe",
+		["PowerLevelRequiredToBreak"] = powerLevelRequiredToBreak or 1,
+	}
+	return name
+end
+
+-- This function creates a new block.
+function blockAPI.newBlock(drawTable, name, material, toolData, interface)
+	if not materials[material or "Stone"] then error('material "'..material..'" does not exist', 2) end
+	local newBlockID = #blockAPI.blocks + 1
+	blockAPI.blocks[newBlockID] = drawTable
+	local blockDataL = table.clone(materials[material or "Stone"]) or {}
+	blockDataL["Name"] = name or ("Block "..tostring(newBlockID))
+	blockDataL["Material"] = material or "Stone"
+	blockDataL["ToolData"] = toolData or false
+	blockDataL["Interface"] = interface or false
+	blockAPI.blockData[newBlockID] = blockDataL
+	return newBlockID
+end
+
+-- This function returns the table of a material.
+function blockAPI.getMaterial(name)
+	return materials[string.upperFirstChar(name)]
+end
+
+-- This function obtains the Name of a block ID.
+function blockAPI.getBlockName(ID)
+	return blockAPI.blockData[ID]["Name"]
+end
+
+-- This function obtains the ToolData of a block ID.
+function blockAPI.getBlockToolData(ID)
+	return blockAPI.blockData[ID]["ToolData"]
+end
+
+-- This function obtains the Material of a block ID.
+function blockAPI.getBlockMaterial(ID)
+	return blockAPI.blockData[ID]["Material"]
+end
+
+-- This function obtains the Interface of a block ID.
+function blockAPI.getBlockMaterial(ID)
+	return blockAPI.blockData[ID]["Interface"]
+end
+
+-- This function obtains a block with the name of string.
+function blockAPI.getBlockWithName(str)
+	return blockAPI.blockData[blockNameToID[str]] or false
+end
+
+-- Initialize default materials
+blockAPI.newMaterial("Stone", 10, 10, "Pickaxe", 0)
+blockAPI.newMaterial("StoneOre", 10, 10, "Pickaxe", 0)
+blockAPI.newMaterial("Iron", 10, 10, "Pickaxe", 0)
+blockAPI.newMaterial("IronOre", 10, 10, "Pickaxe", 0)
+blockAPI.newMaterial("Air", -1, -1, "Pickaxe", -1)
+blockAPI.newMaterial("Dirt", 10, 10, "Shovel", 0)
+blockAPI.newMaterial("Sand", 10, 10, "Shovel", 0)
+blockAPI.newMaterial("Wood", 10, 10, "Axe", -1)
+blockAPI.newMaterial("WoodPlanks", 10, 10, "Axe", -1)
+blockAPI.newMaterial("Leaves", 10, 10, "Axe", -1)
+
+-- Initialize default blocks
+blockAPI.newBlock({"B", "B", " "}, "Air", "Air")
+blockAPI.newBlock({"7", "8", " "}, "Stone", "Stone")
+blockAPI.newBlock({"7", "8", "0"}, "Cobblestone", "Stone")
+blockAPI.newBlock({"5", "C", "~"}, "Grass", "Dirt")
+blockAPI.newBlock({"C", "C", " "}, "Dirt", "Dirt")
+blockAPI.newBlock({"9", "8", "8"}, "Crystal Ore", "StoneOre")
+blockAPI.newBlock({"C", "8", "8"}, "Iron Ore", "StoneOre")
+blockAPI.newBlock({"E", "8", "o"}, "Ruby Ore", "StoneOre")
+blockAPI.newBlock({"F", "8", "8"}, "Coal Ore", "StoneOre")
+blockAPI.newBlock({"4", "8", '8'}, "Gold Ore", "StoneOre")
+blockAPI.newBlock({"D", "8", 'o'}, "Emerald Ore", "StoneOre")
+blockAPI.newBlock({"9", "8", 'o'}, "Sapphire Ore", "StoneOre")
+blockAPI.newBlock({"0", "9", "C"}, "Block of Crystal")
+blockAPI.newBlock({"0", "C", "I"}, "Block of Iron Bars")
+blockAPI.newBlock({"0", "E", "R"}, "Block of Ruby")
+blockAPI.newBlock({"0", "F", "C"}, "Block of Coal")
+blockAPI.newBlock({"0", "4", 'G'}, "Block of Gold Bars")
+blockAPI.newBlock({"0", "D", 'E'}, "Block of Emerald")
+blockAPI.newBlock({"0", "9", 'S'}, "Block of Sapphire")
+blockAPI.newBlock({"4", "C", "W"}, "Oak Wood", "Wood")
+blockAPI.newBlock({"1", "C", "="}, "Oak Wood Planks", "WoodPlanks")
+blockAPI.newBlock({"D", "5", "L"}, "Oak Wood Leaves", "Leaves")
+blockAPI.newBlock({"0", "0", " "}, "White Stone", "Stone")
+blockAPI.newBlock({"1", "1", " "}, "Orange Stone", "Stone")
+blockAPI.newBlock({"2", "2", " "}, "Magenta Stone", "Stone")
+blockAPI.newBlock({"3", "3", " "}, "Light Blue Stone", "Stone")
+blockAPI.newBlock({"4", "4", " "}, "Sand", "Sand")
+blockAPI.newBlock({"5", "5", " "}, "Lime Stone", "Stone")
+blockAPI.newBlock({"6", "6", " "}, "Pink Stone", "Stone")
+blockAPI.newBlock({"7", "7", " "}, "Dark Gray Stone", "Stone")
+blockAPI.newBlock({"9", "9", " "}, "Cyan Stone", "Stone")
+blockAPI.newBlock({"A", "A", " "}, "Purple Stone", "Stone")
+blockAPI.newBlock({"B", "B", " "}, "Blue Stone", "Stone")
+blockAPI.newBlock({"D", "D", " "}, "Green Stone", "Stone")
+blockAPI.newBlock({"E", "E", " "}, "Red Brick", "Stone")
+
+
+-- Initialize default tools
+blockAPI.newBlock({"8", "8", " "}, "Stone Sword", "Stone", blockAPI.newToolData("Tool", "Sword", "Stone", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Stone Pickaxe", "Stone", blockAPI.newToolData("Tool", "Pickaxe", "Stone", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Stone Axe", "Stone", blockAPI.newToolData("Tool", "Axe", "Stone", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Stone Shovel", "Stone", blockAPI.newToolData("Tool", "Shovel", "Stone", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Stone Hoe", "Stone", blockAPI.newToolData("Tool", "Hoe", "Stone", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Wood Sword", "Wood", blockAPI.newToolData("Tool", "Sword", "Wood", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Wood Pickaxe", "Wood", blockAPI.newToolData("Tool", "Pickaxe", "Wood", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Wood Axe", "Wood", blockAPI.newToolData("Tool", "Axe", "Wood", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Wood Shovel", "Wood", blockAPI.newToolData("Tool", "Shovel", "Wood", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Wood Hoe", "Wood", blockAPI.newToolData("Tool", "Hoe", "Wood", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Iron Sword", "Iron", blockAPI.newToolData("Tool", "Sword", "Iron", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Iron Pickaxe", "Iron", blockAPI.newToolData("Tool", "Pickaxe", "Iron", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Iron Axe", "Iron", blockAPI.newToolData("Tool", "Axe", "Iron", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Iron Shovel", "Iron", blockAPI.newToolData("Tool", "Shovel", "Iron", 100, 2, 1.4))
+blockAPI.newBlock({"8", "8", " "}, "Iron Hoe", "Iron", blockAPI.newToolData("Tool", "Hoe", "Iron", 100, 2, 1.4))
+
+-- Initalize more default blocks
+blockAPI.newBlock({"C", "7", "W"}, "Dark Oak Wood", "Wood")
+blockAPI.newBlock({"7", "C", "="}, "Dark Oak Wood Planks", "WoodPlanks")
+blockAPI.newBlock({"5", "D", "L"}, "Dark Oak Wood Leaves", "Leaves")
+
+-- Chat Commands --
+-- Set up rank list
+for k=2, 254 do
+	server.rankList[k] = {k, "Unknown Rank"}
+end
+server.rankList[0] = {0, "Banned User"}
+server.rankList[1] = {1, "Player"}
+server.rankList[24] = {24, "Enhanced Member"}
+server.rankList[192] = {192, "Server Moderator"}
+server.rankList[208] = {208, "Server Administrator"}
+server.rankList[255] = {255, "Server Host"}
+
+-- Set up privilege list
+server.privilegeList["tp"] = {24}
+server.privilegeList["kick"] = {128}
+server.privilegeList["ban"] = {160}
+server.privilegeList["unban"] = {160}
+server.privilegeList["save"] = {224}
+server.privilegeList["setWorldSize"] = {255}
+server.privilegeList["setPrivilege"] = {255}
+server.privilegeList["setRank"] = {255}
+server.privilegeList["publish"] = {255}
+server.privilegeList["setRankOfSamePlayer"] = {256}
+server.privilegeList["CanPlaceBlocks"] = {1}
+server.privilegeList["CanDestroyBlocks"] = {1}
+server.privilegeList["CanUseItems"] = {1}
+server.privilegeList["CanAttack"] = {1}
+server.privilegeList["CanJoin"] = {1}
+
+-- Chat commands --
+chatCommands["commands"] = function(user)
+	local strToReturn = "Commands:"
+	for k, v in pairs(chatCommands) do
+		strToReturn = strToReturn.." /"..k
+	end
+	return strToReturn
+end
+chatCommands["help"] = chatCommands["commands"]
+
+chatCommands["setWorldSize"] = function(user, size)
+	if not size then error("/setWorldSize <new world size in blocks>", 0) end
+	if server.getPlayerHasPrivilege(user, "setWorldSize") then
+		size = math.max(math.abs(math.ceil(tonumber(size)/32)*32), 32)
+		local strToReturn = "Set world size to "..size
+		world.maxSize = size
+		save.saveWorld()
+		return strToReturn
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["publish"] = function(user)
+	if not emulateRednetAPI then
+		if server.getPlayerHasPrivilege(user, "publish") then
+			if not server.publishToPlayers then
+				gui.showMessage("Please wait while this server is posted on the list...")
+				server.publishToPlayers = true
+				rednet.host("CraftBuilderServer", tostring(world.currentWorld))
+				draw.game()
+				return "Server is now open to players"
+			else
+				return "Server is already open to players"
+			end
+		else
+			return server.needsPrivileges
+		end
+	else
+		return "Please insert a modem and then restart the game."
+	end
+end
+
+chatCommands["unpublish"] = function(user)
+	if server.getPlayerHasPrivilege(user, "publish") then
+		server.publishToPlayers = false
+		local highestPlayerID = 0
+		for k, v in pairs(server.connectedPlayers) do
+			highestPlayerID = math.max(highestPlayerID, k)
+		end
+		for k=0, highestPlayerID do
+			if server.connectedPlayers[k] and k ~= myCom then
+				server.unloadPlayer(k)
+				server.kickReason[player] = "The host of this server has unpublished this server."
+			end
+		end
+		rednet.unhost("CraftBuilderServer", tostring(world.currentWorld))
+		return "Server is now not open to players and existing players have been kicked"
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["save"] = function(user)
+	if server.getPlayerHasPrivilege(user, "save") then
+		save.saveWorldAuto()
+		return "The world has been saved."
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["kick"] = function(user, player, reason)
+	if not player then error("/kick <player> [reason]", 0) end
+	if server.getPlayerHasPrivilege(user, "kick") then
+		player, reason = tonumber(player) or 1, reason or "A player has kicked you out of the server."
+		if server.isPlayerConnected(player) then
+			local strToReturn = player.." has been kicked."
+			server.kickReason[player] = reason
+			server.sendChatAlert(player.." has been kicked from the server ("..(reason or "")..")")
+			local co, err = coroutine.create(server.unloadPlayer, player)
+			coroutine.resume(co, player)
+			server.coTab[#server.coTab + 1] = co
+			return strToReturn
+		end
+		error("Player "..player.." is not connected to the server.", 0)
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["tp"] = function(user, player, x, y)
+	if server.getPlayerHasPrivilege(user, "tp") then
+		if not x then error("/tp <player> <x> <y>", 0) end
+		if y then
+			player, x, y = tonumber(player), tonumber(x), tonumber(y)
+			if not x then error("x must be a number.", 0) end
+			if not y then error("y must be a number.", 0) end
+			x = math.min(math.max(x, -2^32), 2^32)
+			y = math.min(math.max(y, -2^32), 2^32)
+			local strToReturn = player.." has been teleported to "..x..", "..y.."."
+			if not server.connectedPlayers[player] then error("Player "..player.." is not connected to the server.", 0) end
+			server.connectedPlayers[player][1] = x
+			server.connectedPlayers[player][2] = y
+			rednet.send(player, serialize({"Position Update", x, y}))
+			return strToReturn
+		else
+			local player, player2 = tonumber(player), tonumber(x)
+			if not player2 then error("x must be a number.", 0) end
+			x = math.min(math.max(server.connectedPlayers[player2][1], -2^32), 2^32)
+			y = math.min(math.max(server.connectedPlayers[player2][1], -2^32), 2^32)
+			local strToReturn = player.." has been teleported to "..x..", "..y.."."
+			if not server.connectedPlayers[player] then error("Player "..player.." is not connected to the server.", 0) end
+			server.connectedPlayers[player][1] = x
+			server.connectedPlayers[player][2] = y
+			rednet.send(player, serialize({"Position Update", x, y}))
+			return strToReturn
+		end
+	else
+		return server.needsPrivileges
+	end
+end
+chatCommands["teleport"] = chatCommands.tp
+
+chatCommands["listPlayers"] = function(user)
+	local strToReturn = "Players currently on this server: "
+	for k, v in pairs(server.connectedPlayers) do
+		strToReturn = strToReturn..k.." "
+	end
+	return strToReturn
+end
+chatCommands["list"] = chatCommands["listPlayers"]
+
+chatCommands["getRank"] = function(user, player)
+	if not player then error("/getRank <player>", 0) end
+	player = tonumber(player) or 0
+	return server.getPlayerRankName(player).." (Level "..server.getPlayerRank(player)..")"
+end
+
+chatCommands["setRank"] = function(user, player, rank)
+	if not player or not rank then error("/setRank <player> <new rank>", 0) end
+	if server.getPlayerHasPrivilege(user, "setRank") then
+		player = tonumber(player) or 0
+		rank = tonumber(rank) or 1
+		if user ~= player or (user == player and server.getPlayerHasPrivilege(user, "setRankOfSamePlayer")) then
+			server.setPlayerRank(player, rank)
+		else
+			return server.needsPrivileges
+		end
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["setPrivilege"] = function(user, player, privilege, value)
+	if server.getPlayerHasPrivilege(user, "setPrivilege") then
+		if not value then error("/setPrivilege <player> <privilege> <value>", 0) end
+		player = tonumber(player)
+		if string.lower(value) == "true" then
+			value = true
+		elseif string.lower(value) == "false" then
+			value = false
+		else
+			value = nil
+		end
+		local strToReturn = privilege.." of "..player.." has been set to "..(tostring(value) ~= "nil" and tostring(value) or ("the default value")).."."
+		server.setPlayerPrivilegeOverride(player, privilege, value)
+		return strToReturn
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["ban"] = function(user, player, reason)
+	if server.getPlayerHasPrivilege(user, "ban") then
+		if not player then error("/ban <player> [reason]", 0) end
+		player = tonumber(player)
+		local strToReturn = player.." has been banned from the server."
+		server.setPlayerPrivilegeOverride(player, "CanJoin", false)
+		if server.isPlayerConnected(player) then
+			server.sendChatAlert(player.." has been kicked from the server ("..(reason or "Player has been banned.")..")")
+			local co, err = coroutine.create(server.unloadPlayer, player)
+			coroutine.resume(co, player)
+			server.coTab[#server.coTab + 1] = co
+		end
+		return strToReturn
+	else
+		return server.needsPrivileges
+	end
+end
+
+chatCommands["unban"] = function(user, player, reason)
+	if server.getPlayerHasPrivilege(user, "unban") then
+		if not player then error("/unban <player> [reason]", 0) end
+		player = tonumber(player)
+		local strToReturn = player.." has been unbanned from the server."
+		server.setPlayerPrivilegeOverride(player, "CanJoin", true)
+		return strToReturn
+	else
+		return server.needsPrivileges
+	end
+end
+
+--------------
+-- Draw API --
+--------------
+function draw.clear()
+	usedTerm.setCursorPos(1, 1)
+	usedTerm.clear()
+end
+
+-- Draws a thin horizontal line.
+function draw.horizontalLine(width, char)
+	local str = string.rep(char or " ", width)
+	usedTerm.write(str)
+end
+
+-- Draws a thin vertical line.
+function draw.verticalLine(height, char)
+	local oldx, oldy = usedTerm.getCursorPos()
+	for k=oldy, oldy + height - 1 do
+		usedTerm.setCursorPos(oldx, k)
+		usedTerm.write(char or " ")
+	end
+end
+
+-- This function gets the BG color of a block.
+function draw.getBgColorOfBlock(blockID)
+	return colorTab[blocks[blockID][2]]
+end
+
+-- This function sets draw colors to a selected block.
+function draw.setColorsToBlock(blockID)
+	usedTerm.setTextColor(colorTab[blocks[blockID][1]])
+	usedTerm.setBackgroundColor(colorTab[blocks[blockID][2]])
+end
+
+-- This function draws a block.
+function draw.block(blockID)
+	draw.setColorsToBlock(blockID)
+	usedTerm.write(blocks[blockID][3])
+end
+
+-- This function draws a chunk of terrain.
+function draw.terrainChunk(x, y)
+	local localposx, localposy = localposx - scrcenx + 1, localposy - scrceny + 1
+	local setColorsToBlock = draw.setColorsToBlock
+	if not world.terrain[x] then return end
+	if not world.terrain[x][y] then return end
+	local chunk = world.terrain[x][y]
+	local x, y = x*16, y*16
+	for x2=1, 16 do
+		for y2=1, 16 do
+			if y2 + y - localposy > 0 and y2 + y - localposy <= scrheight and x2 + x - localposx > 0 and x2 + x - localposx <= scrwidth then
+				if chunk[x2][y2][1] > 1 then
+					setColorsToBlock(chunk[x2][y2][1])
+					usedTerm.setCursorPos((x2 + x) - localposx, (y2 + y) - localposy)
+					usedTerm.write(blocks[chunk[x2][y2][1]][3])
+				end
+			end
+		end
+	end
+end
+
+-- This function draws the terrain.
+function draw.terrain()
+	local localposx, localposy = localposx - scrcenx, localposy - scrceny
+	local size = world.renderDistance
+	-- Draw the chunks near the center of the camera.
+	for x=-size + math.floor(localposx/16), size + math.floor(localposx/16) do
+		for y=-size + math.floor(localposy/16), size + math.floor(localposy/16) do
+			draw.terrainChunk(x, y)
+		end
+	end
+end
+
+-- This function draws colored text.
+function draw.coloredText(str)
+	local currentColorStr
+	for k=1, #str do
+		if string.sub(str, k, k) == "&" then
+			currentColorStr = string.upper(string.sub(str, k + 1, k + 1))
+			usedTerm.setTextColor(colorTab[currentColorStr])
+		elseif string.sub(str, k - 1, k - 1) == "&" then
+		else
+			usedTerm.write(string.sub(str, k, k))
+		end
+	end
+	return currentColorStr
+end
+
+-- This function draws text over terrain with the background color being the same as the terrain behind it (pesudo-transparent background color as I call it).
+function draw.overrideTerrainText(str)
+	local cursorx, cursory = usedTerm.getCursorPos()
+	local bx, by = localposx + (cursorx - scrcenx), localposy + (cursory - scrceny)
+	local currentColorStr
+	for k=1, #str do
+		local block = world.getBlock(bx + (k - 1), by) or {1}
+		usedTerm.setBackgroundColor(draw.getBgColorOfBlock(block[1]))
+		if string.sub(str, k, k) == "&" then
+			currentColorStr = colorTab[string.upper(string.sub(str, k + 1, k + 1))]
+			usedTerm.setTextColor(colorTab[currentColorStr])
+		elseif string.sub(str, k - 1, k - 1) == "&" then
+		else
+			usedTerm.write(string.sub(str, k, k))
+		end
+	end
+	return currentColorStr
+end
+
+-- This function draws text over terrain with the background color being the same as the terrain behind it (pseudo-transparent background color as I call it).
+function draw.overrideTerrainWithColoredText(str)
+	local cursorx, cursory = usedTerm.getCursorPos()
+	local bx, by = localposx + (cursorx - scrcenx), localposy + (cursory - scrceny) 
+	for k=1, #str do
+		local block = world.getBlock(bx + (k - 1), by) or {1}
+		usedTerm.setBackgroundColor(draw.getBgColorOfBlock(block[1]))
+		usedTerm.write(string.sub(str, k, k))
+	end
+end
+
+-- This function draws text over terrain with the background color being the same as the terrain behind it (pseudo-transparent background color as I call it).
+function draw.textOverTerrain(str)
+	local cursorx, cursory = usedTerm.getCursorPos()
+	local bx, by = localposx + (cursorx - scrcenx), localposy + (cursory - scrceny) 
+	for k=1, #str do
+		if string.sub(str, k, k) ~= " " then
+			local block = world.getBlock(bx + (k - 1), by) or {1}
+			usedTerm.setBackgroundColor(draw.getBgColorOfBlock(block[1]))
+			usedTerm.write(string.sub(str, k, k))
+		else
+			usedTerm.setCursorPos(cursorx + k, cursory)
+		end
+	end
+end
+
+-- This function draws the inventory bar.
+function draw.inventoryBar()
+	local scrheight = scrheight - 1
+	-- Draw the name of the selected block
+	usedTerm.setTextColor(colors.white)
+	local blockSelectedString = blockAPI.getBlockName(localinventory[localselecteditem])
+	usedTerm.setCursorPos(scrcenx - math.floor(#blockSelectedString*.5), scrheight - 5)
+	draw.textOverTerrain(blockSelectedString)
+	-- Draw the background of the inventory bar
+	local width, height = 2*9 + 1, 3
+	usedTerm.setBackgroundColor(colors.yellow)
+	for k=scrheight - 4, scrheight - 4 + height - 1 do
+		usedTerm.setCursorPos(scrcenx - math.floor(width*.5), k)
+		draw.horizontalLine(width, " ")
+	end
+	-- Draw the contents of the inventory bar
+	for k=1, 9 do
+		if localselecteditem == k then
+			usedTerm.setBackgroundColor(colors.white)
+			usedTerm.setTextColor(colors.blue)
+			usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + ((k - 1)*2), scrheight - 4)
+			draw.verticalLine(3)
+			usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + (k*2), scrheight - 4)
+			draw.verticalLine(3)
+			usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + ((k - 1)*2), scrheight - 4)
+			draw.horizontalLine(3)
+			usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + ((k - 1)*2), scrheight - 2)
+			draw.horizontalLine(3)
+		else
+			usedTerm.setBackgroundColor(colors.yellow)
+			usedTerm.setTextColor(colors.white)
+			if k - 1 ~= localselecteditem then
+				usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + ((k - 1)*2), scrheight - 3)
+				draw.verticalLine(1)
+			end
+			if k + 1 ~= localselecteditem then
+				usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + (k*2), scrheight - 3)
+				draw.verticalLine(1)
+			end
+		end
+		usedTerm.setCursorPos(scrcenx - math.floor(width*.5) + ((k - 1)*2) + 1, scrheight - 3)
+		draw.block(localinventory[k])
+	end
+end
+
+-- This function draws the heads up display.
+function draw.hud()
+	usedTerm.setTextColor(colors.white)
+	usedTerm.setCursorPos(1, 1)
+	draw.textOverTerrain("Position: "..localposx..", "..localposy)
+	usedTerm.setCursorPos(1, 2)
+	draw.textOverTerrain("Chunk: "..math.floor(localposx/16)..", "..math.floor(localposy/16))
+	draw.inventoryBar()
+	-- Draw Server Debug Stuff
+	if server.isServer and false then
+		usedTerm.setTextColor(colors.yellow)
+		usedTerm.setCursorPos(scrcenx, 1)
+		draw.textOverTerrain("Server Debug")
+		usedTerm.setCursorPos(scrcenx, 2)
+		draw.textOverTerrain("Coroutines: "..#server.coTab)
+		usedTerm.setCursorPos(scrcenx, 3)
+		draw.textOverTerrain("Dead: "..#server.deadCoroutines)
+	end
+end
+
+-- Draws client messages.
+function draw.chatMessages(showAll)
+	usedTerm.setBackgroundColor(colors.gray)
+	usedTerm.setTextColor(colors.white)
+	local colorstr = ""
+	local sender = ""
+	for k, v in ipairs(client.chatMessages) do
+		if scrheight - (#client.chatMessages - k + 1) > scrheight - 4 or showAll then
+			usedTerm.setCursorPos(1, scrheight - (#client.chatMessages - k + 1))
+			if v[1] ~= "" then
+				sender = "<&3"..v[1].."&0> "
+			else
+				sender = ""
+			end
+			usedTerm.clearLine()
+			local ncolorstr = draw.coloredText(sender..colorstr..v[2])
+			if ncolorstr then ncolorstr = "&"..ncolorstr end
+			colorstr = ncolorstr or colorstr
+			if v[4] then
+				colorstr = "&0"
+				usedTerm.setTextColor(colors.white)
+			end
+		end
+	end
+end
+
+-- Use this to draw a game frame.
+function draw.game()
+	if client.loadingScreenChunksLoaded >= client.loadingScreenChunksToLoad then
+		usedTerm.setBackgroundColor(colors.blue)
+		usedTerm.clear()
+		draw.terrain()
+		draw.hud()
+		usedTerm.setCursorPos(scrcenx, scrceny)
+		usedTerm.setTextColor(colors.white)
+		draw.textOverTerrain("A")
+		draw.chatMessages()
+	else
+		gui.showMessage("Loading Chunks...")
+	end
+	if usedTerm.drawScreen then
+		usedTerm.drawScreen()
+	end
+end
+
+---------------
+-- World API --
+---------------
+-- This function returns the heightmap of the selected chunk of terrain.
+function world.getHeightMap(x, y)
+	math.randomseed((world.seed + (x*16))*1.75)
+	local leftHeight = math.random(256) - 128
+	math.randomseed((world.seed + (x*16) + 16)*1.75)
+	local rightHeight = math.random(256) - 128
+	local lowerHeight, higherHeight = math.min(leftHeight, rightHeight), math.max(leftHeight, rightHeight)
+	local difference = math.max(leftHeight, rightHeight) - math.min(leftHeight, rightHeight)
+	local heightMap = {}
+	for x2=1, 16 do
+		if leftHeight > rightHeight then
+			heightMap[x2] = -(leftHeight - (difference*((x2 - 1)/15)))
+		else
+			heightMap[x2] = -(leftHeight + (difference*((x2 - 1)/15)))
+		end
+	end
+	return heightMap
+end
+
+-- This function gets the top layer of the x coordinate.
+function world.getTopLayer(x)
+	local heightMap = world.getHeightMap(math.floor(x/16))
+	local position = x - (math.floor(x/16)*16) + 1
+	return heightMap[position]
+end
+
+-- This function generates a chunk of terrain.
+function world.generateChunk(x, y)
+	local heightMap = world.getHeightMap(x, y)
+	-- Create the required chunk table if it does not exist
+	if not world.terrain[x] then
+		world.terrain[x] = {}
+	end
+	if not world.terrain[x][y] then
+		world.terrain[x][y] = {}
+	end
+	local chunk = world.terrain[x][y]
+	-- Generate the base of the terrain
+	for x2=1, 16 do
+		chunk[x2] = {}
+		for y2=1, 16 do
+			if y2 + y*16 <= heightMap[x2] then -- Generate Air
+				chunk[x2][y2] = {1}
+			elseif y2 + y*16 <= heightMap[x2] + 1 then -- Generate Grass
+				chunk[x2][y2] = {4}
+			elseif y2 + y*16 <= heightMap[x2] + 3 then -- Generate Dirt
+				chunk[x2][y2] = {5}
+			else -- Generate stone below the ground
+				if math.random() > .98 then
+					chunk[x2][y2] = {6}
+				elseif math.random() > .88 then
+					chunk[x2][y2] = {7}
+				else
+					chunk[x2][y2] = {2}
+				end
+			end
+		end
+	end
+	-- Generate the tree tables to be used to generate trees.
+	local treesToPlaceLeft = {}
+	math.randomseed((world.seed + ((x - 1)*16))*1.75)
+	for tree=1, math.random(2, 5) do
+		treesToPlaceLeft[tree] = {math.random(1, 16) - 16, math.random(4, 9)}
+		math.randomseed((world.seed + ((x - 1)*16))*1.75)
+	end
+	local treesToPlace = {}
+	math.randomseed((world.seed + (x*16))*1.75)
+	for tree=1, math.random(2, 5) do
+		treesToPlace[tree] = {math.random(1, 16), math.random(4, 9)}
+		math.randomseed((world.seed + (x*16))*1.75)
+	end
+	local treesToPlaceRight = {}
+	math.randomseed((world.seed + ((x + 1)*16))*1.75)
+	for tree=1, math.random(2, 5) do
+		treesToPlaceRight[tree] = {math.random(1, 16) + 16, math.random(4, 9)}
+		math.randomseed((world.seed + ((x + 1)*16))*1.75)
+	end
+	-- Generate the actual trees
+	for k, v in ipairs(treesToPlace) do
+		-- Attempt to generate the base of the tree
+		local base = heightMap[v[1]]
+		for height = base - v[2], base do
+			if height - (y*16) > 0 and height - (y*16) < 17 then
+				chunk[v[1]][height - (y*16)] = {20}
+			end
+		end
+		-- Attempt to generate the tree's leaves
+		local base = heightMap[v[1]] - v[2] - 1
+		for n=v[1] - 2, v[1] + 2 do
+			if n > 0 and n < 17 then
+				chunk[n][base - (y*16)] = {22}
+				chunk[n][base - (y*16) - 1] = {22}
+			end
+		end
+		if v[1] > 0 and v[1] < 17 then
+			chunk[v[1]][base - (y*16) - 2] = {22}
+		end
+	end
+	for k, v in pairs(treesToPlaceLeft) do
+		local heightMap = world.getHeightMap(x - 1)
+		-- Attempt to generate the tree's leaves
+		local base = heightMap[v[1] + 16] - v[2] - 1
+		for n=v[1] - 2, v[1] + 2 do
+			if n > 0 and n < 17 then
+				chunk[n][base - (y*16)] = {22}
+				chunk[n][base - (y*16) - 1] = {22}
+			end
+		end
+		if v[1] > 0 and v[1] < 17 then
+			chunk[v[1]][base - (y*16) - 2] = {22}
+		end
+	end
+	for k, v in pairs(treesToPlaceRight) do
+		local heightMap = world.getHeightMap(x + 1)
+		-- Attempt to generate the tree's leaves
+		local base = heightMap[v[1] - 16] - v[2] - 1
+		for n=v[1] - 2, v[1] + 2 do
+			if n > 0 and n < 17 then
+				chunk[n][base - (y*16)] = {22}
+				chunk[n][base - (y*16) - 1] = {22}
+			end
+		end
+		if v[1] > 0 and v[1] < 17 then
+			chunk[v[1]][base - (y*16) - 2] = {22}
+		end
+	end
+end
+
+-- This function unloads a chunk.
+function world.unloadChunk(x, y)
+	--if world.terrain[x][y] then
+		save.saveChunk(x, y)
+		world.terrain[x][y] = nil
+		world.loadedChunks[x][y] = nil
+	--end
+end
+
+-- This function gets the chunk of the given block and the block's position in that chunk.
+function world.getBlockPosition(x, y)
+	return math.floor(x*(1/16)), math.floor(y*(1/16)), x - (math.floor(x*(1/16))*16) + 1, y - (math.floor(y*(1/16))*16) + 1
+end
+
+-- This function gets the block position of a chunk.
+function world.getChunkPosition(x, y)
+	return x*16, y*16
+end
+
+-- This function gets a block in the position given as arguments.
+function world.getBlock(x, y)
+	local chunkx, chunky, posx, posy = math.floor(x*(1/16)), math.floor(y*(1/16)), x - (math.floor(x*(1/16))*16) + 1, y - (math.floor(y*(1/16))*16) + 1
+	if world.terrain[chunkx] then
+		local chunk = world.terrain[chunkx][chunky]
+		if chunk then
+			return chunk[posx][posy]
+		end
+	end
+end
+
+-- This function returns a boolean that is equal to true if the chunk given is inside the world boundaries.
+function world.isChunkInsideBoundaries(x, y)
+	if x < world.maxSize*(1/32) and x >= -world.maxSize*(1/32) and y < world.maxSize*(1/32) and y >= -world.maxSize*(1/32) then
+		return true
+	end
+	return false
+end
+
+-- This function sets a block's type to a selected type.
+function world.setBlockType(x, y, type)
+	local chunkx, chunky, posx, posy = math.floor(x*(1/16)), math.floor(y*(1/16)), x - (math.floor(x*(1/16))*16) + 1, y - (math.floor(y*(1/16))*16) + 1
+	if world.isChunkInsideBoundaries(chunkx, chunky) then
+		if world.terrain[chunkx] then
+			local chunk = world.terrain[chunkx][chunky]
+			if chunk then
+				chunk[posx][posy][1] = type
+				if server.isServer then
+					rednet.send(p1, serialize({"Update Block", v[2], v[3], v[4], v[5], v[6]}))
+				end
+				return true
+			end
+		end
+		return false, "Chunk is not loaded"
+	end
+	return false, "Chunk is outside boundaries"
+end
+
+-- This function overwrites a block to your choosing.
+function world.overwriteBlock(x, y, newTable)
+	local chunkx, chunky, posx, posy = math.floor(x*(1/16)), math.floor(y*(1/16)), x - (math.floor(x*(1/16))*16) + 1, y - (math.floor(y*(1/16))*16) + 1
+	if world.isChunkInsideBoundaries(chunkx, chunky) then
+		if world.terrain[chunkx] then
+			local chunk = world.terrain[chunkx][chunky]
+			if chunk then
+				chunk[posx][posy] = newTable
+				return true
+			end
+		end
+		return false, "Chunk is not loaded"
+	end
+	return false, "Chunk is outside boundaries"
+end
+
+-- This function overwrites a region of blocks to a block of your choosing.
+function world.overwriteRegionOfBlocks(x1, y1, x2, y2, newTable)
+	local blocksSet = 0
+	for x=x1, x2 do
+		for y=y1, y2 do
+			if world.overwriteBlock(x, y, newTable) then
+				blocksSet = blocksSet + 1
+			end
+		end
+	end
+	return blocksSet
+end
+
+--------------
+-- Save API --
+--------------
+-- This function saves a chunk.
+function save.saveChunk(x, y)
+	local chunk = world.terrain[x][y]
+	if not chunk then error("attempt to save chunk "..x..", "..y.." which is not loaded.", 3) end
+	if fs.getFreeSpace("") < 2048 then
+		error("Terminated: Out of space", 0)
+	end
+	if world.isChunkInsideBoundaries(x, y) then
+		local file = fs.open(save.mainDirectory.."worlds/"..world.currentWorld.."/terrain/"..x.."x"..y, "wb")
+		if file then
+			for x2, vx in ipairs(chunk) do
+				for y2, vy in ipairs(vx) do
+					file.write(tonumber(vy[1]) or 2)
+					file.write(tonumber(vy[2]) or 0)
+				end
+			end
+			file.close()
+		end
+	end
+end
+
+-- Saves the world.
+function save.saveWorld()
+	local file = fs.open(save.mainDirectory.."worlds/"..world.currentWorld.."/configuration", "w")
+	if file then
+		file.writeLine(world.seed)
+		file.writeLine(world.maxSize)
+		file.writeLine((server.publishToPlayers == true and 1) or 0)
+		file.close()
+	end
+end
+
+-- This function saves a world fully.
+function save.saveWorldAuto()
+	save.saveWorld()
+	-- Now that we have saved configuration, we can save everybody to the hard disk.
+	local highestPlayerID = 0
+	for k, v in pairs(server.connectedPlayers) do
+		highestPlayerID = math.max(highestPlayerID, k)
+	end
+	for k=1, highestPlayerID do
+		if server.connectedPlayers[k] then
+			server.savePlayer(k)
+		end
+	end
+	-- We also need to save any loaded chunks to disk and clear them from memory.
+	for x, xv in pairs(world.terrain) do
+		for y, yv in pairs(xv) do
+			save.saveChunk(x, y)
+			yv = nil
+		end
+	end
+end
+
+-- This function loads a chunk.
+function save.loadChunk(x, y)
+	local chunk = {}
+	if fs.exists(save.mainDirectory.."worlds/"..world.currentWorld.."/"..x.."x"..y) then
+		fs.move(save.mainDirectory.."worlds/"..world.currentWorld.."/"..x.."x"..y, save.mainDirectory.."worlds/"..world.currentWorld.."/terrain/"..x.."x"..y)
+	end
+	local file = fs.open(save.mainDirectory.."worlds/"..world.currentWorld.."/terrain/"..x.."x"..y, "rb")
+	if not file then
+		return world.generateChunk(x, y)
+	end
+	for x2=1, 16 do
+		chunk[x2] = {}
+		for y2=1, 16 do
+			chunk[x2][y2] = {}
+			chunk[x2][y2][1] = tonumber(file.read()) or 3
+			chunk[x2][y2][2] = tonumber(file.read()) or 0
+		end
+	end
+	file.close()
+	if not world.terrain[x] then world.terrain[x] = {} end
+	world.terrain[x][y] = chunk
+	return chunk
+end
+
+-- This function loads required variables.
+function save.loadWorld()
+	local file = fs.open(save.mainDirectory.."worlds/"..world.currentWorld.."/configuration", "r")
+	if not fs.isDir(save.mainDirectory.."worlds/"..world.currentWorld.."/terrain") then
+		fs.makeDir(save.mainDirectory.."worlds/"..world.currentWorld.."/terrain")
+	end
+	if file then
+		world.seed = tonumber(file.readLine())
+		world.maxSize = tonumber(file.readLine() or "") or 768
+		server.publishToPlayers = (tonumber(file.readLine() or "") or 0) > 0
+		file.close()
+	end
+end
+
+-- Loads the world list.
+function save.loadWorldListCo()
+	save.worldList = {}
+	local usedspace = getSize("")
+	local romSize = getSize("rom")
+	save.usedspace = usedspace - romSize
+	save.freespace = fs.getFreeSpace("")
+	if not fs.isDir(save.mainDirectory) then fs.makeDir(save.mainDirectory) end
+	if not fs.isDir(save.mainDirectory.."worlds/") then fs.makeDir(save.mainDirectory.."worlds/") end
+	local worlds = fs.list(save.mainDirectory.."worlds/")
+	for k, v in pairs(worlds) do
+		save.worldList[#save.worldList + 1] = {v, getSize(save.mainDirectory.."worlds/"..v)}
+		os.startTimer(.125)
+		yield()
+	end
+end
+
+-- This function creates a new coroutine to load the world list.
+function save.loadWorldList()
+	save.loadingCo = coroutine.create(save.loadWorldListCo)
+	save.loadingWorldList = true
+	gui.worldListSelectedWorld = 0
+end
+
+-- This function continues loading the world list.
+function save.continueLoadingWorldList()
+	if coroutine.status(save.loadingCo) == "dead" then
+		save.loadingWorldList = false
+		return false
+	else
+		local ok, err = coroutine.resume(save.loadingCo)
+		if not ok then
+			error(err)
+		end
+		return true
+	end
+end
+
+-- Server API --
+-- This function is called when a player has connected to this server and there is no data for the player.
+function server.newPlayer(player)
+	server.connectedPlayers[player] = {0, world.getTopLayer(0) - 1, 1, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, (player == myCom and 255) or 1}
+end
+
+-- This function is called when a player has connected to this server and the player has saved data.
+function server.loadPlayer(player)
+	server.connectedPlayers[player] = {0, world.getTopLayer(0) - 1, 1, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 1}
+	local file = fs.open(save.mainDirectory.."worlds/"..world.currentWorld.."/players/"..player..".player", "r")
+	if file then
+		local contents = file.readAll()
+		server.connectedPlayers[player] = unserialize(contents) or server.connectedPlayers[player]
+		file.close()
+	end
+	server.connectedPlayers[player][5] = server.connectedPlayers[player][5] or ((player == myCom and 255) or 1)
+end
+
+-- This function loads a player and returns a function that unloads it.
+function server.temporaryLoad(player)
+	if not server.connectedPlayers[player] then
+		server.loadPlayer(player)
+		return function()
+			server.unloadPlayer(player, true)
+		end
+	end
+	return function() end
+end
+
+-- This function returns a function that loads a player.
+function server.functionLoadPlayer(newFunction)
+	return function(...)
+		local args = {...}
+		local unload = server.temporaryLoad(args[1])
+		local returnValues = {newFunction(unpack(args))}
+		unload()
+		return unpack(returnValues)
+	end
+end
+
+-- This function returns the rank of a player.
+server.getPlayerRank = server.functionLoadPlayer(function(player)
+	return server.connectedPlayers[player][5]
+end)
+
+-- This function returns the rank of a player.
+server.setPlayerRank = server.functionLoadPlayer(function(player, rank)
+	server.connectedPlayers[player][5] = rank
+end)
+
+-- This function returns the name of a player's rank.
+server.getPlayerRankName = server.functionLoadPlayer(function(player)
+	return server.rankList[server.connectedPlayers[player][5]][2] or server.rankList[server.connectedPlayers[player][5]][1]
+end)
+
+-- This function returns if a player at this rank can do this action.
+function server.getRankHasPrivilege(rankNum, privilege)
+	if server.rankList[rankNum][privilege] then
+		if server.rankList[rankNum][privilege][1] or "" == true then
+			return true
+		elseif server.rankList[rankNum][privilege][1] or "" == false then
+			return false
+		end
+	elseif server.privilegeList[privilege] then
+		return rankNum >= (server.privilegeList[privilege][1] or 255)
+	end
+	return rankNum >= 255
+end
+
+-- This function returns if an exact player can do this action.
+server.getPlayerHasPrivilege = server.functionLoadPlayer(function(player, privilege)
+	if server.connectedPlayers[player][6] then
+		if type(server.connectedPlayers[player][6][privilege]) == "boolean" then
+			return server.connectedPlayers[player][6][privilege]
+		end
+	end
+	return server.getRankHasPrivilege(server.connectedPlayers[player][5], privilege)
+end)
+
+-- This function returns if an exact player can do this action.
+server.setPlayerPrivilegeOverride = server.functionLoadPlayer(function(player, privilege, value)
+	if not server.connectedPlayers[player][6] then server.connectedPlayers[player][6] = {} end
+	server.connectedPlayers[player][6][privilege] = value
+end)
+
+-- This function sets up a player that just connected to this server for gameplay.
+function server.initalizePlayer(player)
+	if fs.exists(save.mainDirectory.."worlds/"..world.currentWorld.."/players/"..player..".player") then
+		server.loadPlayer(player)
+	else
+		server.newPlayer(player)
+	end
+	local inventoryUpdate = serialize({"Inventory Update", server.connectedPlayers[player][3], server.connectedPlayers[player][4]})
+	local positionUpdate = serialize({"Position Update", server.connectedPlayers[player][1], server.connectedPlayers[player][2]})
+	sleep()
+	rednet.send(player, inventoryUpdate)
+	for k=1, 3 do
+		sleep()
+		rednet.send(player, positionUpdate)
+	end
+	if player == myCom then
+		if server.publishToPlayers then
+			server.publishToPlayers = false
+			chatCommands["publish"](myCom)
+		end
+		server.sendChatAlert('To use server commands, press "/" and type in a command you want to use, like /publish.')
+	else
+		server.sendChatAlert(player.." has joined the server.")
+	end
+end
+
+-- This function is used to save the player's inventory.
+function server.savePlayer(player)
+	if not fs.isDir(save.mainDirectory.."worlds/"..world.currentWorld.."/players") then
+		fs.makeDir(save.mainDirectory.."worlds/"..world.currentWorld.."/players")
+	end
+	local file = fs.open(save.mainDirectory.."worlds/"..world.currentWorld.."/players/"..player..".player", "w")
+	if file then
+		file.write(serialize(server.connectedPlayers[player]))
+		file.close()
+	end
+end
+
+-- This function is used to unload a player that is leaving.
+function server.unloadPlayer(player, suppressLeftMessage)
+	server.savePlayer(player)
+	server.connectedPlayers[player] = nil
+	if not suppressLeftMessage then server.sendChatAlert(player.." has left the server.") end
+end
+
+-- Coroutine that sends a chunk to a player.
+function server.sendChunk(player, x, y)
+	local xPlayer, xX, xY = player, x, y
+	if world.terrain[xX] then
+		if not world.terrain[xX][xY] then
+			save.loadChunk(xX, xY)
+		end
+	else
+		save.loadChunk(xX, xY)
+	end
+	if not world.loadedChunks[xX] then world.loadedChunks[xX] = {} end
+	if not world.loadedChunks[xX][xY] then world.loadedChunks[xX][xY] = 0 end
+	world.loadedChunks[xX][xY] = world.loadedChunks[xX][xY] + 1
+	local message = serialize({"Requested Chunk", xX, xY, world.terrain[xX][xY]})
+	for k=1, 1 do
+		yield()
+		rednet.send(xPlayer, message)
+		coroutine.yield()
+	end
+	return 1
+end
+
+-- This function is called when this server shuts down.
+function server.shutDownServer()
+	gui.showMessage("The server is shutting down...")
+	server.sendChatAlert("The server is shutting down...")
+	-- Send a message to everybody that the server is shutting down.
+	local message = serialize({"Server Closing"})
+	for l=1, 10 do
+		for k, v in pairs(server.connectedPlayers) do
+			rednet.send(k, message)
+		end
+		sleep(.05)
+	end
+	rednet.unhost("CraftBuilderServer", tostring(world.currentWorld))
+	-- Now that we have sent a message to everyone, we can save everybody to the hard disk.
+	gui.showMessage("Saving unsaved changes...")
+	local highestPlayerID = 0
+	for k, v in pairs(server.connectedPlayers) do
+		highestPlayerID = math.max(highestPlayerID, k)
+	end
+	for k=0, highestPlayerID do
+		if server.connectedPlayers[k] then
+			server.unloadPlayer(k)
+		end
+	end
+	-- We also need to save any loaded chunks to disk and clear them from memory.
+	for x, xv in pairs(world.terrain) do
+		for y, yv in pairs(xv) do
+			save.saveChunk(x, y)
+		end
+	end
+	save.saveWorld()
+	world.terrain = {}
+	-- We still need to restore variables to default values! Don't forget to do that.
+	resetVariables()
+end
+
+-- Checks if a player is currently on the server.
+function server.isPlayerConnected(player)
+	return server.connectedPlayers[player] ~= nil
+end
+
+-- This function sends a chat alert to everybody in the server.
+function server.sendChatAlert(string)
+	local message = serialize({"New Chat Message", "Server Message", string})
+	for l=1, 1 do
+		sleep()
+		for k, v in pairs(server.connectedPlayers) do
+			rednet.send(k, message)
+		end
+	end
+end
+
+-- This coroutine handles the server.
+function server.hearEvents()
+	local deadCoroutines = server.deadCoroutines
+	local pingTimer = os.startTimer(5)
+	local autoSaveTimer = os.startTimer(60)
+	while true do
+		for k, v in pairs(server.coTab) do
+			if coroutine.status(v) ~= "dead" then
+				local ok, err = coroutine.resume(v)
+				if not ok then
+					error("Error resuming coroutine: "..err, 0)
+				end
+			else
+				deadCoroutines[#deadCoroutines + 1] = k
+			end
+		end
+		for k, v in ipairs(deadCoroutines) do
+			table.remove(server.coTab, v - (k - 1))
+		end
+		deadCoroutines = {}
+		local event, p1, p2, p3, p4, p5 = os.pullEventRaw()
+		if event == "terminate" then
+			return server.shutDownServer()
+		elseif event == "timer" and p1 == pingTimer then
+			local message = serialize({"Ping Timer"})
+			for l=1, 10 do
+				yield()
+				for k, v in pairs(server.connectedPlayers) do
+					rednet.send(k, message)
+				end
+			end
+			pingTimer = os.startTimer(5)
+		elseif event == "timer" and p1 == autoSaveTimer then
+			server.sendChatAlert("The world is now saving...")
+			save.saveWorldAuto()
+			autoSaveTimer = os.startTimer(60)
+		elseif event == "rednet_message" then
+			if p2 == "Connect" and (server.publishToPlayers or p1 == myCom) then
+				if server.bannedPlayers[p1] then
+					yield()
+					rednet.send(p1, serialize({"Banned", server.kickReason[p1] or 'A moderator on the server has blacklisted you from the server.'}), "Banned")
+				end
+				for k=1, 10 do
+					yield()
+					rednet.send(p1, serialize({"World Size", world.maxSize}))
+					rednet.send(p1, serialize({"Loading Player Data"}))
+				end
+				server.initalizePlayer(p1)
+				if not server.getPlayerHasPrivilege(p1, "CanJoin") then
+					for k=1, 10 do
+						yield()
+						rednet.send(p1, serialize({"Banned", server.kickReason[p1] or 'A moderator on the server has blacklisted you from the server.'}), "Banned")
+					end
+					server.unloadPlayer(p1)
+					server.bannedPlayers[p1] = true
+				else
+					rednet.send(p1, serialize({"Position Update", server.connectedPlayers[p1][1], server.connectedPlayers[p1][2]}))
+				end
+			elseif server.isPlayerConnected(p1) then
+				local values = unserialize(p2) or {}
+				local strToSend
+				if values[1] == "SendChatMessage" then
+					local isCommand = string.find(values[3], "/") or -2000
+					if isCommand < 2 and isCommand > -1 then
+						local textMessage = string.sub(values[3], 2)
+						local args = {}
+						local commandArgs = {}
+						for output in string.gmatch(textMessage, "([^%s]+)") do 
+							args[#args + 1] = output
+							if #args > 1 then
+								commandArgs[#commandArgs + 1] = output
+							end
+						end
+						if args[1] then
+							if chatCommands[args[1]] then
+								local chatFunct = chatCommands[args[1]]
+								err, strToSend = pcall(chatFunct, p1, unpack(commandArgs))
+								if not err then strToSend = "&e"..strToSend end
+								if not strToSend then strToSend = "The server has processed your command, but it did not return anything." end
+							else
+								strToSend = "&e"..args[1].." is not a valid command. Type in /commands for a list of commands."
+							end
+						else
+							strToSend = '&4To use a command, type in "/commands" in the text box and press enter.'
+						end
+						local message = serialize({"New Chat Message", "Server Message", strToSend})
+						for l=1, 1 do
+							sleep()
+							rednet.send(p1, message)
+						end
+					else
+						local message = serialize({"New Chat Message", values[2], tostring(values[3])})
+						for l=1, 1 do
+							sleep()
+							for k, v in pairs(server.connectedPlayers) do
+								rednet.send(k, message)
+							end
+						end
+					end
+				elseif values[1] == "ChangedBlock" then
+					local v = values
+					if world.isChunkInsideBoundaries(v[2], v[3]) then
+						rednet.send(p1, serialize({"Update Block", v[2], v[3], v[4], v[5], v[6]}))
+					end
+				elseif values[1] == "DownloadChunk" then
+					local co, err = coroutine.create(server.sendChunk, p1, tonumber(values[2]), tonumber(values[3]))
+					local ok, err2 = coroutine.resume(co, p1, tonumber(values[2]), tonumber(values[3]))
+					if not ok then error("Error resuming coroutine: "..err2, 0) end
+					server.coTab[#server.coTab + 1] = co
+				elseif values[1] == "UnloadingChunk" then
+					local x, y = tonumber(values[2]), tonumber(values[3])
+					if not world.loadedChunks[x] then world.loadedChunks[x] = {} end
+					if world.loadedChunks[x][y] then
+						world.loadedChunks[x][y] = world.loadedChunks[x][y] - 1
+						if world.loadedChunks[x][y] < 1 then
+							world.unloadChunk(x, y)
+						end
+					end
+				elseif values[1] == "MoveLeft" then
+					if server.connectedPlayers[p1] then
+						if server.connectedPlayers[p1][1] > -world.maxSize*.5 then
+							server.connectedPlayers[p1][1] = server.connectedPlayers[p1][1] - 1
+							rednet.send(p1, serialize({"Position Update", server.connectedPlayers[p1][1], server.connectedPlayers[p1][2]}))
+						end
+					end
+				elseif values[1] == "MoveRight" then
+					if server.connectedPlayers[p1] then
+						if server.connectedPlayers[p1][1] < world.maxSize*.5 - 1 then
+							server.connectedPlayers[p1][1] = server.connectedPlayers[p1][1] + 1
+							rednet.send(p1, serialize({"Position Update", server.connectedPlayers[p1][1], server.connectedPlayers[p1][2]}))
+						end
+					end
+				elseif values[1] == "MoveUp" then
+					if server.connectedPlayers[p1] then
+						if server.connectedPlayers[p1][2] > -world.maxSize*.5 then
+							server.connectedPlayers[p1][2] = server.connectedPlayers[p1][2] - 1
+							rednet.send(p1, serialize({"Position Update", server.connectedPlayers[p1][1], server.connectedPlayers[p1][2]}))
+						end
+					end
+				elseif values[1] == "MoveDown" then
+					if server.connectedPlayers[p1] then
+						if server.connectedPlayers[p1][2] < world.maxSize*.5 - 1 then
+							server.connectedPlayers[p1][2] = server.connectedPlayers[p1][2] + 1
+							rednet.send(p1, serialize({"Position Update", server.connectedPlayers[p1][1], server.connectedPlayers[p1][2]}))
+						end
+					end
+				elseif values[1] == "InventoryChanged" then
+					server.connectedPlayers[p1][3] = values[2] or server.connectedPlayers[p1][3]
+					server.connectedPlayers[p1][4] = values[3] or server.connectedPlayers[p1][4]
+					rednet.send(p1, serialize({"Inventory Update", server.connectedPlayers[p1][3], server.connectedPlayers[p1][4]}))
+				elseif values[1] == "Disconnect" then
+					local co, err = coroutine.create(server.unloadPlayer, p1)
+					coroutine.resume(co, p1)
+					server.coTab[#server.coTab + 1] = co
+				end
+			elseif server.bannedPlayers[p1] then
+				if server.bannedPlayers[p1] ~= os.getComputerID() then
+					yield()
+					rednet.send(p1, serialize({"Banned", server.kickReason[p1] or 'A moderator on the server has blacklisted you from the server.'}), "Banned")
+				end
+			else
+				rednet.send(p1, serialize({"Not On The Server", server.kickReason[p1] or 'To play on this server, run "pastebin run PsUYWcT5 '..myCom..'" in the shell.'}), "Lua World Builder Server")
+			end
+		end
+	end
+end
+
+-- This function sets up the server environment for gameplay.
+function server.initalizeServer()
+	world.terrain = {}
+	saveFile(save.mainDirectory.."lastPlayedWorld", world.currentWorld)
+	save.loadWorld()
+	server.connectedTo = os.getComputerID()
+	server.isServer = true
+	-- Now that server has started connect to the internal server.
+	parallel.waitForAny(server.hearEvents, client.handleClient)
+end
+
+-- Client API --
+client.chatMessages = {}
+-- Sends an update to the server.
+function client.sendUpdate(values)
+	for i=1, 1 do
+		yield()
+		rednet.send(client.connectedTo, serialize(values))
+	end
+end
+
+-- When called, the game connects to a server.
+function client.connect(computer)
+	rednet.open(selectedside)
+	gui.showMessage("Connecting to server...")
+	rednet.send(computer, "Connect")
+	yield()
+	client.connectedTo = computer
+	local timeOut = os.startTimer(1)
+	local attempts = 1
+	-- Obtain values from the server
+	while true do
+		local event, p1, p2, p3, p4, p5 = os.pullEvent()
+		if event == "rednet_message" then
+			local values = unserialize(p2) or {}
+			if values[1] == "Loading Player Data" then
+				break
+			elseif values[1] == "World Size" then
+				world.maxSize = tonumber(values[2]) or 768
+				timeOut = false
+			elseif values[1] == "Banned" then
+				-- Uh-oh, we have been BANNED from the server.
+				client.disconnect()
+				return gui.showMessage("You have been banned from this server!"..values[2], true)
+			end
+		elseif event == "timer" and p1 == timeOut then
+			if attempts < 4 then
+				attempts = attempts + 1
+				gui.showMessage("Failed to connect, retrying. Attempt "..attempts)
+				rednet.send(computer, "Connect")
+				timeOut = os.startTimer(1)
+			else
+				return false
+			end
+		end
+	end
+	gui.showMessage("Loading Chunks...")
+	return true
+end
+
+-- When called, the game disconnects from a server.
+function client.disconnect()
+	client.sendUpdate({"PlayerDisconnect"})
+	resetVariables()
+end
+
+-- This function acts as the loop to handle client syncing with the server.
+function client.handleClient(computer)
+	computer = computer or myCom
+	if not client.connect(computer) then
+		gui.showMessage("The attempt to connect timed out.", true)
+		return false
+	end
+	local isConnnectedTimer, showLosingConnectionTimer, showIsLosingConnection = nil, nil, false
+	local u1, u2, u3, u4, u5
+	local sz = 3
+	local chatHistory = {}
+	while true do
+		if client.loadingScreenChunksLoaded >= client.loadingScreenChunksToLoad and client.showLoadingScreen then
+			draw.game()
+			client.showLoadingScreen = false
+		elseif showIsLosingConnection == true then
+			if not server.isServer then gui.showMessage("Waiting for server update...") end
+		end
+		local event, p1, p2, p3, p4, p5 = os.pullEventRaw()
+		if event == "rednet_message" then
+			if p1 == client.connectedTo then
+				local values = unserialize(p2) or {}
+				if values[1] == "Ping Timer" then
+					isConnnectedTimer, showLosingConnectionTimer, showIsLosingConnection = os.startTimer(30), os.startTimer(20), false
+				elseif values[1] == "Position Update" then
+					localposx, localposy = values[2], values[3]
+					if not world.terrain[math.floor(localposx/16)] then
+						world.terrain[math.floor(localposx/16)] = {}
+					end
+					if not world.terrain[math.floor(localposx/16)][math.floor(localposy/16)] then
+						client.sendUpdate({"DownloadChunk", math.floor(localposx/16), math.floor(localposy/16)})
+					end
+					for x=math.floor(localposx/16) - sz, math.floor(localposx/16) + sz do
+						if not world.terrain[x] then world.terrain[x] = {} end
+						for y=math.floor(localposy/16) - sz, math.floor(localposy/16) + sz do
+							if world.terrain[x][y] then
+								if x < math.floor(localposx/16) - (sz - 1) or x > math.floor(localposx/16) + (sz - 1) then
+									client.sendUpdate({"UnloadingChunk", x, y})
+									if not server.isServer then world.terrain[x][y] = nil end -- The server cannot unload a chunk yet, we need to check if it is still used by players.
+								elseif y < math.floor(localposy/16) - (sz - 1) or y > math.floor(localposy/16) + (sz - 1) then
+									client.sendUpdate({"UnloadingChunk", x, y})
+									if not server.isServer then world.terrain[x][y] = nil end
+								end
+							else
+								if x >= math.floor(localposx/16) - (sz - 1) and x <= math.floor(localposx/16) + (sz - 1) and y >= math.floor(localposy/16) - (sz - 1) and y <= math.floor(localposy/16) + (sz - 1) then
+									client.sendUpdate({"DownloadChunk", x, y})
+								end
+							end
+						end
+					end
+					draw.game()
+				elseif values[1] == "Update Block" then
+					local v = values
+					if world.terrain[v[2]] then
+						if world.terrain[v[2]][v[3]] then
+							world.terrain[v[2]][v[3]][v[4]][v[5]] = {v[6]}
+						end
+					end
+					draw.game()
+				elseif values[1] == "Inventory Update" then
+					localinventory, localselecteditem = values[3], values[2]
+					draw.game()
+				elseif values[1] == "Requested Chunk" then
+					world.terrain[values[2]][values[3]] = values[4]
+					client.loadingScreenChunksLoaded = client.loadingScreenChunksLoaded + 1
+				elseif values[1] == "New Chat Message" then
+					local cutOffWidth = scrwidth - #tostring(values[2]) - 3
+					client.chatMessages[#client.chatMessages + 1] = {values[2], string.sub(values[3], 1, cutOffWidth), 0}
+					for k=cutOffWidth + 1, #tostring(values[3]), scrwidth do
+						client.chatMessages[#client.chatMessages + 1] = {"", string.sub(values[3], k, k + scrwidth), 0}
+					end
+					client.chatMessages[#client.chatMessages][4] = true
+					draw.chatMessages()
+				elseif values[1] == "Server Closing" and not server.isServer then
+					-- The server is closing, return to the main menu.
+					return true
+				elseif values[1] == "Server Closing" and server.isServer then
+					-- We need to wait for the server to close, so we jump into an infinite loop.
+					while true do
+						sleep()
+					end
+				elseif values[1] == "Not On The Server" then
+					-- Oh dear, we have been kicked from the server
+					client.disconnect()
+					return gui.showMessage("You have been removed from the session!"..values[2], true)
+				elseif values[1] == "Banned" then
+					-- Uh-oh, we have been BANNED from the server.
+					client.disconnect()
+					return gui.showMessage("You have been banned from this server!"..values[2], true)
+				end
+			end
+		end
+		if event == "key" then
+			if p1 == keys.up or p1 == keys.w then
+				client.sendUpdate({"MoveUp"})
+			elseif p1 == keys.down or p1 == keys.s then
+				client.sendUpdate({"MoveDown"})
+			elseif p1 == keys.left or p1 == keys.a then
+				client.sendUpdate({"MoveLeft"})
+			elseif p1 == keys.right or p1 == keys.d then
+				client.sendUpdate({"MoveRight"})
+			elseif p1 == keys.c or p1 == keys.slash then
+				draw.chatMessages(true)
+				term.setBackgroundColor(colors.gray)
+				term.setTextColor(colors.white)
+				term.setCursorPos(1, scrheight)
+				term.setTextColor(colors.yellow)
+				term.write("> ")
+				term.setTextColor(colors.white)
+				if p1 == keys.c then
+					os.pullEventRaw()
+				end
+				local message = showTextBox(3, scrheight, scrwidth - 2, scrheight, "", chatHistory)
+				if #message > 0 then
+					chatHistory[#chatHistory + 1] = message
+					client.sendUpdate({"SendChatMessage", myCom, message})
+				end
+			elseif p1 > 1 and p1 < 11 then
+				client.sendUpdate({"InventoryChanged", p1 - 1})
+			elseif p1 == 11 then
+				local newInventory = {1, 2, 3, 4, 5, 6, 7, 8, 9}
+				for k, v in pairs(localinventory) do
+					newInventory[k] = math.max(math.fmod(v + 9, #blocks) + 1, 1)
+				end
+				client.sendUpdate({"InventoryChanged", localselecteditem, newInventory})
+			end
+			draw.game()
+		end
+		if event == "mouse_click" then
+			local clickedx, clickedy = (p2 - scrcenx) + localposx, (p3 - scrceny) + localposy
+			local chunkX, chunkY = math.floor((clickedx)/16), math.floor((clickedy)/16)
+			local x, y = math.floor((clickedx) - (chunkX*16)) + 1, math.floor((clickedy) - (chunkY*16)) + 1
+			if not isConnnectedTimer then isConnnectedTimer = os.startTimer(20) showIsLosingConnectionTimer = os.startTimer(5) end
+			if p1 == 1 then
+				p1, p2, p3, p4, p5 = chunkX, chunkY, x, y, localinventory[localselecteditem]
+				pcall(client.sendUpdate, {"ChangedBlock", p1, p2, p3, p4, p5})
+			elseif p1 == 2 then
+				localinventory[localselecteditem] = world.getBlock(clickedx, clickedy)[1]
+				pcall(client.sendUpdate, {"InventoryChanged", localselecteditem, localinventory})
+			end
+		end
+		if event == "timer" and p1 == isConnnectedTimer and not server.isServer then
+			client.disconnect()
+			return gui.showMessage("You have lost connection to the server!", true)
+		elseif event == "timer" and p1 == showIsLosingConnectionTimer then
+			showIsLosingConnection = true
+		end
+		if event == "terminate" and not server.isServer then
+			return client.disconnect()
+		end
+	end
+end
+
+-- Main Menu API --
+gui.currentMenu = "mainMenu"
+gui.currentTitle = "Main Menu"
+gui.mainMenuButtons = {"Start Server", "Connect To Server", "Enable Screen Buffer"}
+gui.worldListButtonsWhenSelected = {"Create New World", "Back", "Play", "Delete"}
+gui.worldListButtonsNoneSelected = {"Create New World", "Back"}
+gui.worldListWorlds = {}
+gui.worldListScroll = 0
+gui.worldListSelectedWorld = 0
+gui.serverListButtonsWhenSelected = {"Back", "Manual Entry", "Play"}
+gui.serverListButtonsNoneSelected = {"Back", "Manual Entry"}
+gui.serverListWorlds = {}
+gui.serverListScroll = 0
+gui.serverListSelectedWorld = 0
+
+function gui.showMessage(text, playerMustRespond)
+	usedTerm.setBackgroundColor(colors.gray)
+	usedTerm.setTextColor(colors.white)
+	usedTerm.clear()
+	local limit, curY = math.floor(scrcenx*1.75), scrceny
+	for k=1, #text, limit do
+		usedTerm.setCursorPos(scrcenx - math.floor(#string.sub(text, k, k + limit)*.5 - 1), curY)
+		usedTerm.write(string.sub(text, k, k + limit - 1))
+		curY = curY + 1
+	end
+	if playerMustRespond then
+		local text = "Press any key to continue..."
+		usedTerm.setCursorPos(scrcenx - math.floor(#text*.5 - 1), math.floor(scrheight*.9))
+		usedTerm.write(text)
+		if usedTerm.drawScreen then
+			usedTerm.drawScreen()
+		end
+		os.pullEvent("key")
+	else
+		if usedTerm.drawScreen then
+			usedTerm.drawScreen()
+		end
+	end
+end
+
+function showTextBox(x, y, width, height, text, history)
+	local cursorpos, scrollx = math.min(x or 0, #text), 0
+	scrollx = cursorpos
+	local strClr = string.rep(" ", width + 1)
+	if #text == 0 then
+		usedTerm.setCursorPos(x + cursorpos - scrollx, y)
+		usedTerm.write(strClr)
+	end
+	usedTerm.setCursorBlink(true)
+	history = history or {}
+	local currentEntryInHistory = #history + 1
+	while true do
+		if #text > width then
+			scrollx = math.min(math.max(cursorpos - width*.5, 0), #text - width)
+		else
+			scrollx = 0
+		end
+		usedTerm.setCursorPos(x + cursorpos - scrollx, y)
+		local event, p1, p2, p3, p4 = os.pullEvent()
+		if(event == "key") then
+			if(p1 == keys.left) then
+				cursorpos = math.max(cursorpos - 1, 0)
+			elseif(p1 == keys.right) then
+				cursorpos = math.min(cursorpos + 1, #text)
+			elseif(p1 == keys.up) and #history > 0 then
+				currentEntryInHistory = math.max(1, currentEntryInHistory - 1)
+				text = history[currentEntryInHistory] or ""
+				cursorpos = math.min(cursorpos, #text)
+			elseif(p1 == keys.down) and #history > 0 then
+				currentEntryInHistory = math.min(#history + 1, currentEntryInHistory + 1)
+				text = history[currentEntryInHistory] or ""
+				cursorpos = math.min(cursorpos, #text)
+			elseif(p1 == keys.enter) then
+				usedTerm.setCursorBlink(false)
+				return text
+			elseif(p1 == keys.backspace) then
+				if cursorpos > 0 then
+					text = string.sub(text, 1, cursorpos - 1) .. string.sub(text, cursorpos + 1, -1)
+					cursorpos = cursorpos - 1
+				end
+			elseif(p1 == keys.delete) then
+				if cursorpos < #text then
+					text = string.sub(text, 1, cursorpos) .. string.sub(text, cursorpos + 2, -1)
+				end
+			elseif(p1 == keys.home) then
+				cursorpos = 0
+			elseif(keys.getName(p1) == "end") then
+				cursorpos = #text
+			end
+		end
+		if(event == "char") then
+			text = string.sub(text, 1, cursorpos) .. p1 .. string.sub(text, cursorpos + 1, -1)
+			cursorpos = cursorpos + 1
+		end
+		if(event == "paste") then
+			text = string.sub(text, 1, cursorpos) .. p1 .. string.sub(text, cursorpos + 1, -1)
+			cursorpos = cursorpos + #p1
+		end
+		if(event == "mouse_click") then
+			if p3 ~= y or p2 < x or p2 > width + x then
+				usedTerm.setCursorBlink(false)
+				return text
+			else
+				cursorpos = p2 - (x) + scrollx
+			end
+		end
+		if #text > width then
+			scrollx = math.min(math.max(cursorpos - width*.5, 0), #text - width)
+		else
+			scrollx = 0
+		end
+		usedTerm.setCursorPos(x + cursorpos - scrollx, y)
+		usedTerm.setCursorPos(x, y)
+		usedTerm.write(strClr)
+		usedTerm.setCursorPos(x, y)
+		usedTerm.write(string.sub(text, scrollx, scrollx + width))
+		if usedTerm.drawScreen then
+			usedTerm.drawScreen()
+		end
+	end
+end
+
+function gui.showTextPrompt(message)
+	gui.showMessage(message)
+	usedTerm.setBackgroundColor(colors.lightGray)
+	return showTextBox(math.ceil(scrcenx*.5), math.floor(scrheight*.8), math.ceil(scrcenx), 0, "")
+end
+
+function draw.mainMenuBg()
+	usedTerm.setBackgroundColor(colors.blue)
+	usedTerm.setTextColor(colors.black)
+	usedTerm.clear()
+	-- Draw background here
+	draw.terrain()
+	-- Draw background above
+	usedTerm.setCursorPos(math.ceil(scrcenx - #gui.currentTitle * .5), 2)
+	usedTerm.setTextColor(colors.white)
+	draw.textOverTerrain(gui.currentTitle)
+end
+
+function draw.mainMenuButtons(tab)
+	local buttonBg = string.rep(" ", math.ceil(scrcenx + 2))
+	usedTerm.setTextColor(colors.white)
+	usedTerm.setBackgroundColor(colors.gray)
+	for k, v in ipairs(tab) do
+		for k2=1, 3 do
+			usedTerm.setCursorPos(math.ceil(scrcenx*.5), scrheight - ((#tab - k + 2)*4) + k2 + 4)
+			usedTerm.write(buttonBg)
+		end
+		usedTerm.setCursorPos(math.ceil(scrcenx - #v * .5) + 1, scrheight - ((#tab - k + 2)*4) + 6)
+		usedTerm.write(v)
+	end
+end
+
+function draw.mainMenu()
+	usedTerm.setBackgroundColor(colors.lightBlue)
+	draw.mainMenuButtons(gui.mainMenuButtons)
+end
+
+function draw.worldList()
+	draw.mainMenuBg()
+	local buttonBg = string.rep(" ", math.ceil(scrcenx - 8))
+	local buttonBg2 = string.rep(" ", math.ceil(scrcenx - 7))
+	local tab = gui.worldListButtonsNoneSelected
+	usedTerm.setTextColor(colors.white)
+	if gui.worldListSelectedWorld > 0 then
+		tab = gui.worldListButtonsWhenSelected
+	end
+	usedTerm.setBackgroundColor(colors.gray)
+	for k, v in ipairs(tab) do
+		for k2=0, 2 do
+			usedTerm.setCursorPos(math.ceil(scrcenx*1.2), (k*4) + k2)
+			usedTerm.write(buttonBg2)
+		end
+		usedTerm.setCursorPos(math.ceil(scrcenx*1.2) + math.floor((#buttonBg2 - #v)*.5), (k*4) + 1)
+		usedTerm.write(v)
+	end
+	if #save.worldList > 0 then
+		for k, v in ipairs(save.worldList) do
+			if gui.worldListSelectedWorld == k then
+				usedTerm.setTextColor(colors.blue)
+			else
+				usedTerm.setTextColor(colors.white)
+			end
+			for k2=0, 1 do
+				usedTerm.setCursorPos(math.ceil(scrcenx*.2), 1 + (k*3) - gui.worldListScroll + k2)
+				usedTerm.write(buttonBg)
+			end
+			usedTerm.setCursorPos(math.ceil(scrcenx*.2), 1 + (k*3) - gui.worldListScroll)
+			usedTerm.write(save.worldList[k][1])
+			usedTerm.setCursorPos(math.ceil(scrcenx*.2), 1 + (k*3) - gui.worldListScroll + 1)
+			usedTerm.write(save.worldList[k][2].." bytes")
+		end
+	elseif not save.loadingWorldList then
+		usedTerm.setBackgroundColor(colors.lightBlue)
+		local noWorldsString = "No Worlds Saved."
+		usedTerm.setCursorPos(math.ceil(scrcenx*.5) - math.ceil(#noWorldsString*.5), math.ceil(scrceny*.5))
+		draw.overrideTerrainText(noWorldsString)
+	end
+	local loadingString = "Loading Worlds..."
+	usedTerm.setBackgroundColor(colors.lightBlue)
+	if save.loadingWorldList then
+		usedTerm.setCursorPos(math.ceil(scrcenx*.5) - math.ceil(#loadingString*.5), scrheight - 4)
+		draw.overrideTerrainText(loadingString)
+	end
+	-- Draw free space report
+	if save.freespace and gui.worldListSelectedWorld == 0 then
+		usedTerm.setCursorPos(1, scrheight - 2)
+		draw.overrideTerrainText(save.freespace.." bytes free ("..(math.floor(save.freespace/(save.freespace + save.usedspace)*10000)*.01).."%) on hard disk")
+		usedTerm.setCursorPos(1, scrheight - 1)
+		draw.overrideTerrainText(save.usedspace.." bytes used out of "..(save.freespace + save.usedspace).." bytes total")
+		usedTerm.setCursorPos(1, scrheight)
+		usedTerm.setBackgroundColor(colors.blue)
+		draw.horizontalLine(scrwidth, "#")
+		usedTerm.setCursorPos(1, scrheight)
+		usedTerm.setBackgroundColor(colors.red)
+		draw.horizontalLine(scrwidth - math.floor((save.freespace/(save.freespace + save.usedspace))*scrwidth))
+	end
+	if usedTerm.drawScreen then
+		usedTerm.drawScreen()
+	end
+end
+
+function draw.serverList()
+	draw.mainMenuBg()
+	local buttonBg = string.rep(" ", math.ceil(scrcenx - 8))
+	local buttonBg2 = string.rep(" ", math.ceil(scrcenx - 7))
+	local tab = gui.serverListButtonsNoneSelected
+	usedTerm.setTextColor(colors.white)
+	if gui.serverListSelectedWorld > 0 then
+		tab = gui.serverListButtonsWhenSelected
+	end
+	usedTerm.setBackgroundColor(colors.gray)
+	for k, v in ipairs(tab) do
+		for k2=0, 2 do
+			usedTerm.setCursorPos(math.ceil(scrcenx*1.2), (k*4) + k2)
+			usedTerm.write(buttonBg2)
+		end
+		usedTerm.setCursorPos(math.ceil(scrcenx*1.2) + math.floor((#buttonBg2 - #v)*.5), (k*4) + 1)
+		usedTerm.write(v)
+	end
+	if #save.serverList > 0 then
+		for k, v in ipairs(save.serverList) do
+			if gui.serverListSelectedWorld == k then
+				usedTerm.setTextColor(colors.blue)
+			else
+				usedTerm.setTextColor(colors.white)
+			end
+			for k2=0, 1 do
+				usedTerm.setCursorPos(math.ceil(scrcenx*.2), 1 + (k*3) - gui.worldListScroll + k2)
+				usedTerm.write(buttonBg)
+			end
+			usedTerm.setCursorPos(math.ceil(scrcenx*.2), 1 + (k*3) - gui.worldListScroll)
+			usedTerm.write("Computer "..string.sub(tostring(save.serverList[k]), 1, -1))
+		end
+	elseif not save.loadingServerList then
+		local noWorldsString = "No Servers Available."
+		usedTerm.setCursorPos(math.ceil(scrcenx*.5) - math.ceil(#noWorldsString*.5), math.ceil(scrceny*.5))
+		draw.textOverTerrain(noWorldsString)
+	end
+	local loadingString = "Loading Servers..."
+	usedTerm.setBackgroundColor(colors.lightBlue)
+	if save.loadingServerList then
+		usedTerm.setCursorPos(math.ceil(scrcenx*.5) - math.ceil(#loadingString*.5), scrheight - 4)
+		draw.textOverTerrain(loadingString)
+	end
+	if usedTerm.drawScreen then
+		usedTerm.drawScreen()
+	end
+end
+
+function gui.onClick(x, y, tab)
+	if gui.currentMenu == "mainMenu" then
+		if x > math.ceil(scrcenx*.5) and x < math.ceil(scrcenx*.5) + math.ceil(scrcenx + 2) then
+			for k, v in ipairs(tab) do
+				for k2=1, 3 do
+					if y == scrheight - ((#tab - k + 2)*4) + k2 + 4 then
+						return k
+					end
+				end
+			end
+		end
+	elseif gui.currentMenu == "worldSelect" then
+		if x > math.ceil(scrcenx) then
+			local tab = gui.worldListButtonsNoneSelected
+			if gui.worldListSelectedWorld > 0 then
+				tab = gui.worldListButtonsWhenSelected
+			end
+			for k, v in ipairs(tab) do
+				for k2=1, 3 do
+					if y == (k*4) + k2 - 1 then
+						return -k
+					end
+				end
+			end
+		else
+			local tab = save.worldList
+			for k, v in ipairs(tab) do
+				for k2=0, 1 do
+					if y == 1 + (k*3) - gui.worldListScroll + k2 then
+						return k
+					end
+				end
+			end
+		end
+	elseif gui.currentMenu == "serverSelect" then
+		if x > math.ceil(scrcenx) then
+			local tab = gui.serverListButtonsNoneSelected
+			if gui.serverListSelectedWorld > 0 then
+				tab = gui.serverListButtonsWhenSelected
+			end
+			for k, v in ipairs(tab) do
+				for k2=1, 3 do
+					if y == (k*4) + k2 - 1 then
+						return -k
+					end
+				end
+			end
+		else
+			local tab = save.serverList
+			for k, v in ipairs(tab) do
+				for k2=0, 1 do
+					if y == 1 + (k*3) - gui.serverListScroll + k2 then
+						return k
+					end
+				end
+			end
+		end
+	end
+	return false
+end
+
+function animatedMainMenu.streamChunks()
+	if not save.loadingWorldList then
+		local sz = world.renderDistance
+		localposx = math.floor(localposx)
+		localposy = math.floor(world.getTopLayer(localposx) + 1)
+		for x=math.floor(localposx/16) - sz, math.floor(localposx/16) + sz do
+			if not world.terrain[x] then world.terrain[x] = {} end
+			for y=math.floor(localposy/16) - sz, math.floor(localposy/16) + sz do
+				if world.terrain[x][y] then
+					if x < math.floor(localposx/16) - (sz - 1) or x > math.floor(localposx/16) + (sz - 1) then
+						world.terrain[x][y] = nil
+					elseif y < math.floor(localposy/16) - (sz - 1) or y > math.floor(localposy/16) + (sz - 1) then
+						world.terrain[x][y] = nil
+					end
+				else
+					if x >= math.floor(localposx/16) - (sz - 1) and x <= math.floor(localposx/16) + (sz - 1) and y >= math.floor(localposy/16) - (sz - 1) and y <= math.floor(localposy/16) + (sz - 1) then
+						save.loadChunk(x, y)
+					end
+				end
+			end
+		end
+	end
+end
+
+function gui.menu()
+	save.loadWorld()
+	draw.mainMenuBg()
+	save.loadWorldList()
+	local moveCameraTimer = os.startTimer(.125)
+	scrcenx, scrceny = math.floor(scrwidth*.5), math.floor(scrheight*.5)
+	while true do
+		save.continueLoadingWorldList()
+		animatedMainMenu.streamChunks()
+		if gui.currentMenu == "mainMenu" then
+			gui.currentTitle = "Main Menu"
+			draw.mainMenuBg()
+			draw.mainMenu()
+			if usedTerm.drawScreen then
+				usedTerm.drawScreen()
+			end
+			local event, p1, p2, p3 = os.pullEvent()
+			if event == "mouse_click" then
+				local clicked = gui.onClick(p2, p3, gui.mainMenuButtons)
+				if clicked == 1 then
+					gui.currentMenu = "worldSelect"
+					gui.currentTitle = "Select World"
+					draw.mainMenuBg()
+				elseif clicked == 2 then
+					gui.currentMenu = "serverSelect"
+					gui.currentTitle = "Select Server"
+					gui.showMessage("Searching for servers...")
+					save.serverList = {rednet.lookup("CraftBuilderServer")}
+					draw.mainMenuBg()
+				elseif clicked == 3 then
+					if usedTerm.drawScreen then
+						usedTerm = term
+						gui.mainMenuButtons[3] = "Enable Screen Buffer"
+					else
+						screenBuffer = Buffer.createBuffer(1, 1, sx, sy, true)
+						usedTerm = screenBuffer
+						gui.mainMenuButtons[3] = "Disable Screen Buffer"
+					end
+				end
+			elseif event == "timer" and p1 == moveCameraTimer then
+				localposx = math.floor(localposx + 1)
+			end
+			moveCameraTimer = os.startTimer(.125)
+		elseif gui.currentMenu == "worldSelect" then
+			draw.terrain()
+			draw.worldList()
+			local event, p1, p2, p3 = os.pullEvent()
+			if event == "mouse_click" then
+				local clicked = gui.onClick(p2, p3)
+				if clicked then
+					if clicked > 0 then
+						if gui.worldListSelectedWorld == clicked then
+							world.currentWorld = save.worldList[gui.worldListSelectedWorld][1]
+							gui.showMessage("Starting Server...")
+							server.initalizeServer()
+							save.loadWorldList()
+							draw.mainMenuBg()
+						else
+							gui.worldListSelectedWorld = clicked
+						end
+					elseif clicked == -1 then
+						local name = gui.showTextPrompt("Type in the name of the new world.")
+						if name == "" then name = "NewWorld" end
+						world.currentWorld = name
+						gui.showMessage("Starting Server...")
+						server.initalizeServer()
+						save.loadWorldList()
+						draw.mainMenuBg()
+					elseif clicked == -2 then
+						gui.worldListSelectedWorld = 0
+						gui.currentMenu = "mainMenu"
+						gui.currentTitle = "Main Menu"
+						draw.mainMenuBg()
+					elseif clicked == -3 then
+						world.currentWorld = save.worldList[gui.worldListSelectedWorld][1]
+						gui.showMessage("Starting Server...")
+						server.initalizeServer()
+						save.loadWorldList()
+						draw.mainMenuBg()
+					elseif clicked == -4 then
+						gui.showMessage("Deleting World...")
+						fs.delete(save.mainDirectory.."worlds/"..save.worldList[gui.worldListSelectedWorld][1])
+						save.loadWorldList()
+						gui.worldListSelectedWorld = 0
+						draw.mainMenuBg()
+					end
+				end
+			elseif event == "timer" and p1 == moveCameraTimer then
+				localposx = localposx + 1
+			end
+			moveCameraTimer = os.startTimer(.125)
+		elseif gui.currentMenu == "serverSelect" then
+			draw.serverList()
+			local event, p1, p2, p3 = os.pullEvent()
+			if event == "mouse_click" then
+				local clicked = gui.onClick(p2, p3)
+				if clicked then
+					if clicked > 0 then
+						if gui.serverListSelectedWorld == clicked then
+							gui.showMessage("Joining Server...")
+							client.handleClient(math.floor(save.serverList[gui.serverListSelectedWorld]))
+							draw.mainMenuBg()
+						else
+							gui.serverListSelectedWorld = clicked
+						end
+					elseif clicked == -1 then
+						gui.serverListSelectedWorld = 0
+						gui.currentMenu = "mainMenu"
+						gui.currentTitle = "Main Menu"
+						draw.mainMenuBg()
+					elseif clicked == -2 then
+						local server = gui.showTextPrompt("Type in the number of the server you want to connect to.")
+						server = tonumber(server)
+						if not server then
+							gui.showMessage("That server ID is not valid.", true)
+						else
+							gui.showMessage("Joining Server...")
+							client.handleClient(math.floor(server))
+							draw.mainMenuBg()
+						end
+					elseif clicked == -3 then
+						gui.showMessage("Joining Server...")
+						client.handleClient(math.floor(save.serverList[gui.serverListSelectedWorld]))
+						draw.mainMenuBg()
+					end
+				end
+			elseif event == "timer" and p1 == moveCameraTimer then
+				localposx = localposx + 1
+			end
+			moveCameraTimer = os.startTimer(.125)
+		end
+		sleep()
+	end
+end
+
+-- Mod API --
+-- Load mods --
+if not fs.isDir(save.mainDirectory.."mods") then
+	fs.makeDir(save.mainDirectory.."mods")
+end
+_G.blockAPI = blockAPI
+_G.draw = draw
+_G.world = world
+_G.save = save
+_G.server = server
+_G.client = client
+_G.gui = gui
+_G.mods = mods
+for k, v in ipairs(fs.list(save.mainDirectory.."mods")) do
+	dofile(save.mainDirectory.."mods/"..v)
+end
+
+-- End of Functions --
+draw.clear()
+
+-- Main Loop
+local success, msg
+if not tArgs[1] then
+	success, msg = pcall(gui.menu)
+else
+	success, msg = pcall(client.handleClient, tonumber(tArgs[1]))
+end
+
+if fs.getFreeSpace("") < 2048 then
+	gui.showMessage("Error! This game requires at least 2048 bytes of free hard disk space to save your world.", true)
+	sleep(3)
+end
+
+term.setBackgroundColor(colors.black)
+term.setTextColor(colors.white)
+term.setCursorPos(1, 1)
+term.clear()
+
+if not success then
+	error(msg, 0)
+end
