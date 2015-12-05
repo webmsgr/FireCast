@@ -1,0 +1,79 @@
+local nSize, bNew, nBase, stack, maxx, maxy = 8, true, 0, {}, term.getSize()
+
+stack[ 0 ] = { math.floor( maxx/2 ) - 4, math.floor( maxx/2 ) + 4, bReverse = false }
+
+local function gameOver()
+	term.clear()
+	local str = "Game Over!  Your Score: " .. #stack - 1 
+	term.setCursorPos( math.floor( (maxx - #str) / 2 ), maxy / 2 )
+	print( str )
+	term.setCursorPos( 1, 1 )
+	error()
+end
+
+local function renderStack()
+	if #stack - nBase > maxy / 2 then
+		nBase = nBase + 1
+	end
+	term.setBackgroundColor( colors.white )
+	for i = 0, #stack do
+		if i + nBase > #stack then
+			break
+		end
+		term.setCursorPos( stack[ i + nBase ][ 1 ], maxy - i )
+		term.write( string.rep( " ", stack[ i + nBase ][2] - stack[ i + nBase ][1] ) )
+	end
+	term.setBackgroundColor( colors.black )
+end
+
+local function getInput()
+	local new = bNew and { 1, nSize + 1, bReverse = false } or stack[ #stack ]
+	local id = os.startTimer( 0.1 * (0.99^#stack) )
+	while true do
+		local event = { os.pullEvent() }
+		if event[ 1 ] == "timer" and event[ 2 ] == id then
+			if not new.bReverse then
+				new[ 1 ] = new[ 1 ] + 1
+				new[ 2 ] = new[ 2 ] + 1
+				if new[ 2 ] > maxx then
+					new.bReverse = true
+				end
+			else
+				new[ 1 ] = new[ 1 ] - 1
+				new[ 2 ] = new[ 2 ] - 1
+				if new[ 1 ] <= 1 then
+					new.bReverse = false
+				end
+			end
+			if bNew then
+				stack[ #stack + 1 ] = new
+				bNew = false
+			end
+			break
+		elseif event[ 1 ] == "key" and event[ 2 ] == keys.space then
+			if new[ 1 ] < ( bNew and stack[ #stack ][ 1 ] or stack[ #stack - 1 ][ 1 ] ) then
+				new[ 1 ] = ( bNew and stack[ #stack ][ 1 ] or stack[ #stack - 1 ][ 1 ] )
+			end
+			if new[ 2 ] > ( bNew and stack[ #stack ][ 2 ] or stack[ #stack - 1 ][ 2 ] ) then
+				new[ 2 ] = ( bNew and stack[ #stack ][ 2 ] or stack[ #stack - 1 ][ 2 ] )
+			end
+			if new[ 2 ] - new[ 1 ] <= 0 then
+				gameOver()
+			end
+			nSize = new[ 2 ] - new[ 1 ]
+			if bNew then
+				stack[ #stack + 1 ] = new
+			else
+				stack[ #stack ] = new
+				bNew = true
+			end
+			break
+		end
+	end
+end
+
+while true do
+	term.clear()
+	renderStack()
+	getInput()
+end
