@@ -1,0 +1,403 @@
+-- Computer Math program, Made by Maxidoo aka The_Cat
+
+--[[ GLOBAL MUGNUGGESTS ]]--
+xLength, yLength = term.getSize() -- Gets Size
+amountOfQuestions = 10
+startButtons = {
+	{text="+", isOn=true, display="[ENABLED]", x=2, y=yLength-10},
+	{text="-", isOn=true, display="[ENABLED]", x=2, y=yLength-8},
+	{text="x", isOn=true, display="[ENABLED]", x=2, y=yLength-6},
+	{text="/", isOn=false, display="[DISABLED]", x=2, y=yLength-4},
+	{text="Begin", x=2, y=yLength-1},
+	{text="Exit", x=47, y=yLength-1}
+}
+resultTable = {
+	{text="Next", x=46, y=yLength-1},
+	{text="Previous", x=2, y=yLength-1},
+	{text="BACK", x=23, y=yLength-1}
+}
+completeQuestionsTable = {
+	{text="Continue", x=xLength-9, y=yLength-1},
+	{text="Review Answer", x=2, y=yLength-1},
+}
+numberOne = {}
+numberTwo = {}
+signTable = {}
+correctAnswersTable = {}
+
+isSignTrue = {
+	{text="+", isOn=true},
+	{text="-", isOn=true},
+	{text="x", isOn=true},
+	{text="/", isOn=false}
+}
+
+--[[ BASIC FUNCTIONS ]]--
+function reset() term.clear() term.setCursorPos(1, 1) end
+function displayText(text, color) term.setTextColor(color) print(text) term.setTextColor(colors.white) end
+function displayTextWrite(text, color) term.setTextColor(color) write(text) term.setTextColor(colors.white) end
+
+-- Generates One Random Number
+function oneRandom(low, high)
+	local rand = math.random(low, high) -- Gens Number
+	math.ceil(rand) -- Rounds number up
+	return rand -- Returns the number made
+end
+--[[ Advanced making for questions ]]--
+function minusGen()
+	local randomNumberOne = oneRandom(1, 100)
+	repeat
+		randomNumberTwo = oneRandom(1, 100)
+	until randomNumberTwo < randomNumberOne
+	local sign = "-"
+	table.insert(numberOne, randomNumberOne)
+	table.insert(numberTwo, randomNumberTwo)
+	table.insert(signTable, sign)
+	local answerMinus = randomNumberOne - randomNumberTwo
+	table.insert(correctAnswersTable, answerMinus)
+end
+function equalsGen()
+	local randomNumberOne = oneRandom(1, 100)
+	local randomNumberTwo = oneRandom(1, 100)
+	local sign = "+"
+	table.insert(numberOne, randomNumberOne)
+	table.insert(numberTwo, randomNumberTwo)
+	table.insert(signTable, sign)
+	local answerEquals = randomNumberOne + randomNumberTwo
+	table.insert(correctAnswersTable, answerEquals)
+end
+function timesGen()
+	local randomNumberOne = oneRandom(1, 20)
+	local randomNumberTwo = oneRandom(1, 10)
+	local sign = "x"
+	table.insert(numberOne, randomNumberOne)
+	table.insert(numberTwo, randomNumberTwo)
+	table.insert(signTable, sign)
+	local answerTimes = randomNumberOne * randomNumberTwo
+	table.insert(correctAnswersTable, answerTimes)
+end
+function createQuestions(amount)
+	x=0
+	numberOne = {} -- Makes Tables
+	numberTwo = {}
+	signTable = {}
+	correctAnswersTable = {}
+	repeat -- Loops until x == the amount of questions needed
+		local rand = math.random(1, 4)
+		math.ceil(rand)
+		if isSignTrue[rand].text == "+" and isSignTrue[rand].isOn then --[[ For table so
+			the user will be able to enable and disable different operatores ]]
+			equalsGen()
+			x = x + 1
+		elseif isSignTrue[rand].text == "-" and isSignTrue[rand].isOn then
+			minusGen()
+			x = x + 1
+		elseif isSignTrue[rand].text == "x" and isSignTrue[rand].isOn then
+			timesGen()
+			x = x + 1
+		elseif isSignTrue[rand].text == "/" and isSignTrue[rand].isOn then
+			sign = "/"
+		end
+	until x == amount
+end
+function makeButtons(buttonTable)
+	for i, k in ipairs(buttonTable) do
+		term.setCursorPos(k.x, k.y)
+		displayTextWrite(k.text, colors.yellow)
+		if k.display then
+			if k.isOn then
+				k.display = "[ENABLED]"
+				isSignTrue[i].isOn = true
+				displayTextWrite(" "..k.display, colors.green)
+			else
+				k.display = "[DISABLED]"
+				isSignTrue[i].isOn = false
+				displayTextWrite(" "..k.display, colors.red)
+			end
+		end
+	end
+end
+
+--[[
+function signRandom()
+	repeat
+		local rand = math.random(1, 3)
+		math.ceil(rand)
+		x = false
+		if isSignTrue[rand].text == "+" and isSignTrue[rand].isOn then
+			sign = "+"
+			x = true
+		elseif isSignTrue[rand].text == "-" and isSignTrue[rand].isOn then
+			sign = "-"
+			x = true
+		elseif isSignTrue[rand].text == "x" and isSignTrue[rand].isOn then
+			sign = "x"
+			x = true
+		elseif isSignTrue[rand].text == "/" and isSignTrue[rand].isOn then
+			sign = "/"
+			x = true
+		end
+		print("test")
+	until x == true
+	return sign
+end
+]]
+-- Function for creating the questions
+--[[function generateQuestionsTable(amount)
+	counter = 0
+	numberOne = {}
+	numberTwo = {}
+	signTable = {}
+	repeat
+		local randomNumberOne = oneRandom(1, 100)
+		local randomNumberTwo = oneRandom(1, 100)
+		local randomSign = signRandom()
+		table.insert(numberOne, randomNumberOne)
+		table.insert(numberTwo, randomNumberTwo)
+		table.insert(signTable, randomSign)
+		counter = counter + 1
+	until counter == amount
+end]]
+-- Prints Questions and ask questions and shows whats correct + wrong
+function makePrintAsk(amount)
+	createQuestions(amount)
+	answerTable = {}
+	for i = 1, amount do -- Loop of how many questions there are
+		notNumberError = false
+		repeat
+			reset()
+			displayText("Question: "..i, colors.yellow) -- Shows which question user is on
+			if notNumberError then -- Shows that user inputted an error
+				term.setCursorPos(1,3)
+				displayText("Only Enter Numbers.", colors.red) -- calls function
+				term.setCursorPos(1,2)
+			end
+			
+			displayTextWrite(numberOne[i].. " " ..signTable[i].. " " ..numberTwo[i].." = ", colors.yellow) -- Rights the TWO numbers for user to work out
+			answerGiven = io.read() -- User puts answer in
+			
+			if not tonumber(answerGiven) then -- If statement to check if number
+				notNumberError = true
+				good = false -- repeat loop retry
+			else
+				good = true -- repeat loop exit
+				table.insert(answerTable, answerGiven) -- inserts the answer as no errors
+			end
+		until good == true
+		reset()
+	end
+end
+function results(x)
+	rightAnswers = 0
+	isCorrect = {}
+	xPosC = 1
+	yPosC = 0
+	for i = 1, x do
+		currX, currY = term.getCursorPos()
+		if currY == yLength-4 then
+			xPosC = xPosC + 13
+			yPosC = 0
+		end
+		yPosC=yPosC+1
+		term.setCursorPos(xPosC, yPosC)
+		if tonumber(answerTable[i]) == tonumber(correctAnswersTable[i]) then
+			--displayTextWrite(i.. ") WRONG", colors.red) -- Testing
+			displayTextWrite(i..") CORRECT", colors.green)
+			rightAnswers = rightAnswers + 1
+			textIsCorrect = "correct"
+		else
+			--displayTextWrite(i..") CORRECT", colors.green) -- Testing
+			displayTextWrite(i.. ") WRONG", colors.red)
+			textIsCorrect = "wrong"
+		end
+		table.insert(isCorrect, textIsCorrect)
+		--table.insert(positionsResults, x)
+	end
+	term.setCursorPos(1, yLength-3)
+	displayText(rightAnswers.. " / " ..x, colors.magenta)
+end
+--[[ FANCY EFFECTS ]]--
+-- Loading+Starting Effect
+title = "Made By The_Cat aka Maxidoo"
+function loading()
+	for i = 0, 2 do
+		reset()
+		displayTextWrite("Generating", colors.green)
+		for i = 0, 3 do
+			os.sleep(.2)
+			displayTextWrite(".", colors.green)
+		end
+	end
+	reset()
+	for i = 3, 1, -1 do
+		displayTextWrite("Starting... ", colors.green)
+		displayTextWrite(i, colors.yellow)
+		os.sleep(.5)
+		reset()
+	end
+end
+-- Low and High Bar
+function drawBar(xPos, yPos, length, thickness, colour)
+	term.setBackgroundColor(colour)
+	for i = 1, thickness do
+		term.setCursorPos(xPos, yPos+i)
+		for i = 1, length do
+			write(" ")
+		end
+	end
+	term.setBackgroundColor(colors.black)
+end
+
+function clickableBar(xPos, yPos, length, thickness, colour, colourBG, xClick, yClick)
+	reset()
+	if yClick > yPos and yClick <= yPos+thickness then
+		if xClick >= xPos and xClick < xPos+length then
+			amountOfQuestions = xClick - xPos+1 -- Plus one cus of xPos
+			reset()
+		else
+			reset()
+		end
+	else
+		amountOfQuestionsa = amountOfQuestions
+		reset()
+	end
+	drawBar(xPos, yPos, length, thickness, colourBG) -- Background Bar
+	drawBar(xPos, yPos, amountOfQuestions, thickness, colour)
+end
+
+function tablelength(T)
+  local count = 0
+  for _ in pairs(T) do count = count + 1 end
+  return count
+end
+
+reset() -- Clears screen for mugnugget maths
+
+amountOfQuestions = 10 -- Default amount of questions
+
+xX = 0 -- For bar to loads NEED TO CHANGE
+yY = 0 -- For bar to load
+function checkButtons(clickX, clickY, buttonTable)
+	tableLength = tablelength(buttonTable)
+	test = 0
+	for i = 1, tableLength do
+		if buttonTable[i].display then
+			test = #buttonTable[i].display
+		else
+			test = 0
+		end
+		if buttonTable[i].x <= clickX and buttonTable[i].x+#buttonTable[i].text+test >= clickX and buttonTable[i].y == clickY then
+			return buttonTable[i].text
+		end
+	end
+end
+
+function detailResults(i)
+	x = 0
+	reset()
+	i=1
+	repeat
+		if i == 0 then
+			i = amountOfPrevQuestions
+		end
+		if i == amountOfPrevQuestions+1 then
+			i = 1
+		end
+		makeButtons(resultTable)
+		term.setCursorPos(2, 1)
+		displayText("Question: " ..i, colors.yellow)
+		term.setCursorPos(2, 2)
+		displayTextWrite(numberOne[i].. " " ..signTable[i].. " " ..numberTwo[i].." = ", colors.yellow)
+		if isCorrect[i] == "correct" then
+			displayTextWrite(answerTable[i], colors.green)
+		else
+			displayTextWrite(answerTable[i], colors.red)
+			term.setCursorPos(16, 2)
+			displayTextWrite(correctAnswersTable[i], colors.green)
+		end
+		local event, button, xX, yY = os.pullEvent("mouse_click") -- For bar and other buttons
+		local textClicked = checkButtons(xX, yY, resultTable)
+		
+		if textClicked == "Next" then
+			i = i + 1
+			--print("N"..i)
+		elseif textClicked == "Previous" then
+			i = i - 1
+			--print("P"..i)
+		elseif textClicked == "Finish" then
+			x = 1
+			--print("F"..i)
+		elseif textClicked == "BACK" then
+			x = 1
+		end
+		reset()
+		
+	until x == 1
+end
+w = 0
+amountOfPrevQuestions = 0
+while true do -- temp loop
+	
+	clickableBar(2, 3, 49, 3, colors.green, colors.gray, xX, yY)
+	drawBar(1, 0, 51, 1, colors.green)
+	term.setCursorPos(2, 3)
+	displayText("Amount Of Questions: " ..amountOfQuestions, colors.yellow)
+	makeButtons(startButtons)
+	event, button, xX, yY = os.pullEvent("mouse_click") -- For bar and other buttons
+	textClicked = checkButtons(xX, yY, startButtons)
+	
+	if textClicked == "Begin" then
+		loading() -- Fancy Effects loading mugnuggets NEED TO IMROVE
+		makePrintAsk(amountOfQuestions) -- Functions
+		amountOfPrevQuestions = amountOfQuestions
+		repeat
+			reset()
+			results(amountOfPrevQuestions)
+			makeButtons(completeQuestionsTable)
+			local event, button, xX, yY = os.pullEvent("mouse_click")
+			textClickedd = checkButtons(xX, yY, completeQuestionsTable)
+			if textClickedd == "Continue" then
+				w = 1
+				break
+			elseif textClickedd == "Review Answer" then
+				detailResults(amountOfPrevQuestions)
+			end
+		until w==1
+	elseif textClicked == "Exit" then
+		reset()
+		break
+	elseif textClicked == "+" then
+		if startButtons[1].isOn then
+			startButtons[1].isOn = false
+		else
+			startButtons[1].isOn = true
+		end
+	elseif textClicked == "-" then
+		if startButtons[2].isOn then
+			startButtons[2].isOn = false
+		else
+			startButtons[2].isOn = true
+		end
+	elseif textClicked == "x" then
+		if startButtons[3].isOn then
+			startButtons[3].isOn = false
+		else
+			startButtons[3].isOn = true
+		end
+	elseif textClicked == "/" then
+		if startButtons[4].isOn then
+			startButtons[4].isOn = false
+		else
+			startButtons[4].isOn = true
+		end
+	end
+	--[[for i = 1, test do
+		
+	end]]
+end
+displayText("Made by The_Cat aka Maxidoo.", colors.green)
+sleep(2)
+reset()
+--[[
+loading()
+makePrintAsk(4)]]
