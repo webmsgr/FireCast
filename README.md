@@ -1,6 +1,6 @@
 # FireCast
 
-FireCast is the long awaited successor to the hit FireBox™.
+FireCast is the long awaited successor to Sertex's cult classic FireBox.
 
 This time, however, Sertex are bigger, better and stronger.
 
@@ -8,22 +8,20 @@ Sertex now have Game Fusion in collaboration with them for FireCast.
 
 Installer: pastebin run Pk9Yfd6n
 
-Ideas:
+Features:
 
-• Online System like PlayStation Network*
+• Online System like PlayStation Network or Xbox Live
 
-• Social Network
+• App/Game Store
 
-• App/Game Store*
+• The latest blockbusters such as SKYFALL or HELICOPTER
 
-• Ports of successful games, like HELICOPTER or Skyfall*
+• The ability for anyone to transform your FireCast into a FireCast development station
 
-• An exclusive @ launch*
+• Exclusive games
 
-• Backwards Compatibility*
+• Backwards Compatibility
 
-• SertexPhone cross-compatibility*
+• SertexPhone cross-compatibility
 
-• A Second Screen, like the Wii U? Using SertexPhone as the 2nd screen? And taking the phone anywhere you go with your data?
-
-*Must haves
+(None of these features are confirmed)
