@@ -88,9 +88,10 @@ local function main(...)
 				clear()
 				graphics.header()
 				sertextext.center(5, "FireBox disk detected!")
-				sertextext.center(6, "This game may not be compatible")
+				sertextext.center(6, "Launching backwards compatibility..")
 				sleep(2)
 				fireboxdisk = true
+				shell.run("disk/fireboxlaunch")
 			else
 				clear()
 				graphics.header()
